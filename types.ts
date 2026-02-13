@@ -5,6 +5,7 @@ export interface User {
   actions: EcoAction[];
   currentStreak: number;
   lastLogDate: string; // YYYY-MM-DD
+  hasCompletedTutorial?: boolean;
 }
 
 export interface EcoAction {
@@ -19,6 +20,7 @@ export interface EcoAnalysisResult {
   points: number;
   comment: string;
   category: string;
+  isVerified: boolean;
 }
 
 export enum AppView {
@@ -27,3 +29,5 @@ export enum AppView {
   LOG_ACTION = 'LOG_ACTION',
   REWARDS = 'REWARDS'
 }
+
+export type Language = 'en' | 'ar';

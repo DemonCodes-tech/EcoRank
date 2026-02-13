@@ -1,45 +1,60 @@
 import React, { useState, useEffect } from 'react';
-import { User, AppView, EcoAction } from './types';
+import { User, AppView, EcoAction, Language } from './types';
 import Navbar from './components/Navbar';
 import ActionLog from './components/ActionLog';
 import Leaderboard from './components/Leaderboard';
 import Rewards from './components/Rewards';
 import StreakOverlay from './components/StreakOverlay';
-import { Leaf, TrendingUp, Calendar, ArrowRight, Flame, School } from 'lucide-react';
+import TutorialOverlay from './components/TutorialOverlay';
+import ThemeModal from './components/ThemeModal';
+import { ArrowRight, Terminal, Code, AlertTriangle, Ghost, Globe } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { getStoredUsers, saveStoredUsers } from './services/storageService';
+import { translations } from './services/translations';
+import { getSavedTheme, applyTheme, Theme } from './services/themes';
 
-const COLORS = ['#22c55e', '#16a34a', '#15803d', '#4ade80', '#86efac'];
+const COLORS = ['#10b981', '#059669', '#047857', '#34d399', '#6ee7b7'];
 
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [nameInput, setNameInput] = useState('');
-  const [users, setUsers] = useState<User[]>([]); // Initialize empty, load in useEffect
+  const [users, setUsers] = useState<User[]>([]); 
   const [currentView, setCurrentView] = useState<AppView>(AppView.HOME);
-  
-  // Streak Animation State
+  const [showBetaPopup, setShowBetaPopup] = useState(true);
+  const [lang, setLang] = useState<Language>('en'); // Language State
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+  const [currentTheme, setCurrentTheme] = useState<Theme>(getSavedTheme());
+
   const [streakData, setStreakData] = useState<{ show: boolean; val: number; type: 'started' | 'continued' }>({ 
     show: false, val: 0, type: 'started' 
   });
 
-  // Load data from "Database" on mount
+  const t = translations[lang]; // Helper for current language
+
   useEffect(() => {
     const loadedUsers = getStoredUsers();
     setUsers(loadedUsers);
+    
+    // Apply initial theme
+    applyTheme(currentTheme);
   }, []);
 
-  // Stats calculation for dashboard
+  const toggleLanguage = () => {
+    setLang(prev => prev === 'en' ? 'ar' : 'en');
+  };
+
+  const handleThemeChange = (theme: Theme) => {
+    setCurrentTheme(theme);
+    // applyTheme is called inside handleThemeChange via ThemeModal helper, but doing it here ensures state consistency
+    applyTheme(theme);
+  };
+
   const userActions = currentUser?.actions || [];
   const recentActions = [...userActions].reverse().slice(0, 5);
   
-  // Aggregate categories for chart
-  const categoryStats = userActions.reduce((acc, action) => {
-    return acc;
-  }, {} as Record<string, number>);
-
   const chartData = userActions.length > 0 
-    ? userActions.map((a, i) => ({ name: `Action ${i+1}`, value: a.points }))
-    : [{ name: 'Start Logging', value: 100 }];
+    ? userActions.map((a, i) => ({ name: `Log ${i+1}`, value: a.points }))
+    : [{ name: 'No Data', value: 100 }];
 
 
   const handleLogin = (e: React.FormEvent) => {
@@ -56,13 +71,13 @@ function App() {
         totalPoints: 0,
         actions: [],
         currentStreak: 0,
-        lastLogDate: ''
+        lastLogDate: '',
+        hasCompletedTutorial: false
       };
       
       const updatedUsers = [...users, newUser];
       setUsers(updatedUsers);
       setCurrentUser(newUser);
-      // Save to DB
       saveStoredUsers(updatedUsers);
     }
     setNameInput('');
@@ -73,36 +88,42 @@ function App() {
     setCurrentView(AppView.HOME);
   };
 
+  const handleTutorialComplete = () => {
+    if (!currentUser) return;
+
+    const updatedUser = { ...currentUser, hasCompletedTutorial: true };
+    const updatedUsersList = users.map(u => u.id === currentUser.id ? updatedUser : u);
+    
+    setCurrentUser(updatedUser);
+    setUsers(updatedUsersList);
+    saveStoredUsers(updatedUsersList);
+  };
+
   const handlePointsAwarded = (points: number, description: string, comment: string, category: string) => {
     if (!currentUser) return;
 
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
     
-    // Streak Calculation Logic
     let newStreak = currentUser.currentStreak;
     let streakType: 'started' | 'continued' | null = null;
     let shouldShowAnimation = false;
 
     if (currentUser.lastLogDate !== todayStr) {
-        // Not logged today yet
         const yesterday = new Date(today);
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayStr = yesterday.toISOString().split('T')[0];
 
         if (currentUser.lastLogDate === yesterdayStr) {
-            // Logged yesterday -> Continue streak
             newStreak += 1;
             streakType = 'continued';
             shouldShowAnimation = true;
         } else {
-            // Gap > 1 day or first time -> Reset/Start streak
             newStreak = 1;
             streakType = 'started';
             shouldShowAnimation = true;
         }
     }
-    // If lastLogDate === todayStr, we do nothing to the streak (already counted for today)
 
     const newAction: EcoAction = {
       id: Date.now().toString(),
@@ -120,66 +141,75 @@ function App() {
       lastLogDate: todayStr
     };
 
-    // Update State and DB
     const updatedUsersList = users.map(u => u.id === currentUser.id ? updatedUser : u);
     
     setCurrentUser(updatedUser);
     setUsers(updatedUsersList);
     saveStoredUsers(updatedUsersList);
     
-    // Trigger Animation if streak changed
     if (shouldShowAnimation && streakType) {
         setStreakData({ show: true, val: newStreak, type: streakType });
     }
   };
 
-  // --- Render Methods ---
-
   const renderLogin = () => (
-    <div className="min-h-screen flex items-center justify-center bg-[url('https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?q=80&w=2826&auto=format&fit=crop')] bg-cover bg-center relative">
-      <div className="absolute inset-0 bg-eco-950/80 backdrop-blur-sm"></div>
-      <div className="relative z-10 w-full max-w-md p-8 animate-fade-in">
-        <div className="text-center mb-10">
-          <div className="flex justify-center mb-6">
-             <div className="bg-white/10 p-4 rounded-full backdrop-blur-md border border-white/20 shadow-xl">
-                 {/* Replaced potentially broken image with reliable Lucide icon */}
-                 <School className="h-20 w-20 text-white drop-shadow-md" strokeWidth={1.5} />
-             </div>
-          </div>
-          
-          <h2 className="text-eco-300 font-semibold tracking-wide uppercase text-xs md:text-sm mb-2">The Modern American International School</h2>
-          <h1 className="text-5xl font-bold text-white mb-2 tracking-tight">EcoRank</h1>
-          <p className="text-eco-200 text-lg">Student Sustainability Leaderboard</p>
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-md animate-slide-up">
+        {/* Language Toggle Login */}
+        <div className="absolute top-4 right-4 z-50">
+            <button 
+                onClick={toggleLanguage}
+                className="flex items-center gap-2 px-3 py-1 bg-eco-900/40 border border-eco-500/30 text-eco-400 rounded-md hover:bg-eco-500/20 transition-all text-xs font-mono"
+            >
+                <Globe className="h-4 w-4" />
+                {lang === 'en' ? 'العربية' : 'English'}
+            </button>
         </div>
 
-        <div className="bg-black/30 backdrop-blur-md p-8 rounded-3xl border border-white/10 shadow-2xl">
-          <form onSubmit={handleLogin} className="space-y-6">
-            <div>
-              <label htmlFor="username" className="block text-sm font-medium text-eco-300 mb-2">Username</label>
-              <input
-                id="username"
-                type="text"
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-eco-500 transition-all"
-                placeholder="Enter your name"
-              />
+        <div className="bg-[#0a0a0a] border border-eco-500/30 rounded-lg overflow-hidden shadow-[0_0_30px_rgba(16,185,129,0.1)]">
+            <div className="bg-eco-900/20 border-b border-eco-500/30 p-2 flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-red-500/50"></div>
+                <div className="w-3 h-3 rounded-full bg-yellow-500/50"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500/50"></div>
             </div>
-            <button
-              type="submit"
-              className="w-full py-3.5 px-4 bg-eco-600 hover:bg-eco-500 text-white rounded-xl font-semibold transition-all duration-200 transform hover:scale-[1.02] shadow-lg shadow-eco-600/20"
-            >
-              Start Journey
-            </button>
-          </form>
+
+            <div className="p-8">
+                <div className="text-center mb-10">
+                    <div className="inline-block p-4 border border-eco-500/20 rounded-full mb-4 bg-eco-500/5">
+                        <Terminal className="h-12 w-12 text-eco-400" />
+                    </div>
+                    <h1 className="text-3xl font-bold text-white font-mono mb-1 tracking-tight">{t.loginTitle} <span className="text-eco-500 text-sm align-top">BETA</span></h1>
+                    <p className="text-eco-500/60 text-xs font-mono uppercase tracking-widest">{t.loginSubtitle}</p>
+                </div>
+
+                <form onSubmit={handleLogin} className="space-y-6">
+                    <div className="space-y-1">
+                        <div className="relative group">
+                            <input
+                                type="text"
+                                value={nameInput}
+                                onChange={(e) => setNameInput(e.target.value)}
+                                className="w-full px-4 py-3 bg-black border border-eco-800 text-eco-100 font-mono placeholder-eco-800 focus:outline-none focus:border-eco-500 focus:ring-1 focus:ring-eco-500 transition-all text-center"
+                                placeholder={t.enterUsername}
+                            />
+                        </div>
+                    </div>
+                    <button
+                        type="submit"
+                        className="w-full py-3 bg-eco-600 hover:bg-eco-500 text-black font-bold font-mono uppercase tracking-wider transition-all hover:shadow-[0_0_15px_rgba(16,185,129,0.4)]"
+                    >
+                        {t.startSession}
+                    </button>
+                </form>
+
+                <div className="mt-8 pt-4 border-t border-eco-900/50 text-center">
+                    <p className="text-[9px] text-eco-600 font-mono">
+                         {t.systemStatus}<br/>
+                         [WADEEA, SHARIF, ADAM, MOHAMMED - 10B1]
+                    </p>
+                </div>
+            </div>
         </div>
-      </div>
-      
-      {/* Login Screen Footer Credit */}
-      <div className="absolute bottom-6 w-full text-center z-10 animate-fade-in" style={{animationDelay: '0.2s'}}>
-        <p className="text-eco-400/60 text-xs font-semibold tracking-wide">
-            Made by Wadeea, Sharif, Adam, Mohammed from 10B1
-        </p>
       </div>
     </div>
   );
@@ -188,98 +218,86 @@ function App() {
     if (!currentUser) return null;
 
     return (
-      <div className="space-y-6 animate-slide-up pb-20 md:pb-0">
-        {/* Welcome Hero */}
-        <div className="bg-gradient-to-r from-eco-900 to-eco-800 rounded-3xl p-8 border border-eco-700 relative overflow-hidden">
-          <div className="absolute right-0 top-0 p-8 opacity-10">
-            <Leaf className="h-64 w-64" />
+      <div className="space-y-6 animate-slide-up pb-20 md:pb-0 font-mono">
+        {/* Technical Header */}
+        <div className="border border-eco-500/30 bg-black/40 p-6 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-2 opacity-20">
+             <Code className="h-32 w-32 text-eco-500" />
           </div>
+          
           <div className="relative z-10">
-            <div className="flex justify-between items-start">
+            <div className="flex justify-between items-start mb-6">
                 <div>
-                    <h2 className="text-3xl font-bold text-white mb-2">Welcome back, {currentUser.name}</h2>
-                    <p className="text-eco-200 mb-6">You've made a real difference today.</p>
+                    <div className="text-[10px] text-eco-500 uppercase tracking-widest mb-1">{t.welcome}</div>
+                    <h2 className="text-3xl font-bold text-white uppercase">{currentUser.name}</h2>
                 </div>
-                {/* Small School Branding in Dashboard */}
-                <div className="hidden md:block text-right opacity-50">
-                    <p className="text-xs font-bold text-white uppercase tracking-widest">Modern American</p>
-                    <p className="text-[10px] text-eco-300 uppercase tracking-widest">International School</p>
+                <div className="text-right">
+                    <div className="inline-flex items-center gap-1 px-2 py-1 bg-eco-500/10 border border-eco-500/20 rounded text-[9px] text-eco-400 uppercase tracking-widest">
+                        <span className="w-1.5 h-1.5 bg-eco-500 rounded-full animate-pulse"></span>
+                        {t.live}
+                    </div>
                 </div>
             </div>
             
-            <div className="flex flex-wrap gap-4">
-              <div className="bg-black/20 backdrop-blur-sm rounded-2xl p-4 min-w-[140px] border border-white/5">
-                <div className="flex items-center gap-2 text-eco-400 mb-1">
-                  <TrendingUp className="h-4 w-4" />
-                  <span className="text-xs uppercase tracking-wider font-bold">Total Score</span>
-                </div>
-                <div className="text-3xl font-black text-white">{currentUser.totalPoints}</div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="border border-eco-800 bg-black/50 p-3 hover:border-eco-500/50 transition-colors">
+                <div className="text-[9px] text-eco-500 uppercase tracking-wider mb-1">{t.score}</div>
+                <div className="text-2xl font-bold text-white">{currentUser.totalPoints}</div>
               </div>
-              <div className="bg-black/20 backdrop-blur-sm rounded-2xl p-4 min-w-[140px] border border-white/5">
-                <div className="flex items-center gap-2 text-eco-400 mb-1">
-                  <Calendar className="h-4 w-4" />
-                  <span className="text-xs uppercase tracking-wider font-bold">Actions</span>
-                </div>
-                <div className="text-3xl font-black text-white">{currentUser.actions.length}</div>
+              <div className="border border-eco-800 bg-black/50 p-3 hover:border-eco-500/50 transition-colors">
+                <div className="text-[9px] text-eco-500 uppercase tracking-wider mb-1">{t.logs}</div>
+                <div className="text-2xl font-bold text-white">{currentUser.actions.length}</div>
               </div>
-              
-              {/* Streak Card */}
-              <div className="bg-gradient-to-br from-orange-900/40 to-red-900/40 backdrop-blur-sm rounded-2xl p-4 min-w-[140px] border border-orange-500/20">
-                <div className="flex items-center gap-2 text-orange-400 mb-1">
-                  <Flame className="h-4 w-4 animate-pulse" />
-                  <span className="text-xs uppercase tracking-wider font-bold">Streak</span>
-                </div>
-                <div className="text-3xl font-black text-white flex items-baseline gap-1">
-                    {currentUser.currentStreak} <span className="text-sm font-medium text-orange-300">Days</span>
+              <div className="border border-eco-800 bg-black/50 p-3 hover:border-eco-500/50 transition-colors">
+                <div className="text-[9px] text-orange-400 uppercase tracking-wider mb-1">{t.streak}</div>
+                <div className="text-2xl font-bold text-white flex gap-1">
+                    {currentUser.currentStreak} <span className="text-xs self-end mb-1 text-eco-600">{t.days}</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Recent History */}
-          <div className="bg-eco-900/50 backdrop-blur-md rounded-3xl p-6 border border-eco-800">
-            <h3 className="text-lg font-bold text-white mb-4">Recent Activity</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Recent Logs */}
+          <div className="border border-eco-500/20 bg-black/40 p-4">
+            <h3 className="text-xs font-bold text-eco-400 uppercase tracking-widest mb-4 border-b border-eco-800 pb-2">
+                >> {t.recentActivity}
+            </h3>
             {recentActions.length === 0 ? (
-              <div className="text-center py-10 text-eco-500/50">
-                <Leaf className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>No actions logged yet.</p>
-                <button 
-                  onClick={() => setCurrentView(AppView.LOG_ACTION)}
-                  className="mt-4 text-sm text-eco-400 underline hover:text-eco-300"
-                >
-                  Log your first action
-                </button>
+              <div className="text-center py-8 text-eco-700 text-xs">
+                [{t.noData}]
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-2">
                 {recentActions.map((action) => (
-                  <div key={action.id} className="bg-eco-950/50 p-4 rounded-2xl border border-eco-800/50 flex justify-between items-center group hover:border-eco-600 transition-colors">
-                    <div>
-                      <p className="text-eco-100 font-medium line-clamp-1">{action.description}</p>
-                      <p className="text-xs text-eco-500 mt-1">"{action.aiComment}"</p>
+                  <div key={action.id} className="flex justify-between items-start text-xs p-2 hover:bg-eco-500/5 border-l-2 border-transparent hover:border-eco-500 transition-all">
+                    <div className="flex-1">
+                      <span className="text-eco-300">[{new Date(action.timestamp).toLocaleTimeString()}]</span>
+                      <span className="text-gray-400 mx-2">{action.description}</span>
                     </div>
-                    <span className="font-bold text-eco-400 ml-4">+{action.points}</span>
+                    <span className="font-bold text-eco-400">+{action.points}</span>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Quick Chart or CTA */}
-          <div className="bg-eco-900/50 backdrop-blur-md rounded-3xl p-6 border border-eco-800 flex flex-col items-center justify-center">
-             <h3 className="text-lg font-bold text-white mb-4 w-full text-left">Impact Viz</h3>
-             <div className="h-[200px] w-full">
+          {/* Data Viz */}
+          <div className="border border-eco-500/20 bg-black/40 p-4 flex flex-col">
+             <h3 className="text-xs font-bold text-eco-400 uppercase tracking-widest mb-4 border-b border-eco-800 pb-2">
+                >> {t.impactAnalysis}
+             </h3>
+             <div className="h-[150px] w-full mt-auto">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={chartData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={60}
-                      outerRadius={80}
-                      paddingAngle={5}
+                      innerRadius={40}
+                      outerRadius={60}
+                      paddingAngle={2}
                       dataKey="value"
                       stroke="none"
                     >
@@ -288,98 +306,139 @@ function App() {
                       ))}
                     </Pie>
                     <RechartsTooltip 
-                        contentStyle={{ backgroundColor: '#064e3b', borderColor: '#065f46', borderRadius: '12px', color: '#fff' }}
+                        contentStyle={{ backgroundColor: '#000', borderColor: '#064e3b', fontSize: '10px', fontFamily: 'monospace' }}
                         itemStyle={{ color: '#fff' }}
                     />
                   </PieChart>
                 </ResponsiveContainer>
              </div>
-             <p className="text-xs text-eco-400 mt-2">Points distribution per action</p>
           </div>
         </div>
 
-        {/* Global Rank CTA */}
         <button 
             onClick={() => setCurrentView(AppView.LEADERBOARD)}
-            className="w-full bg-gradient-to-r from-emerald-900 to-eco-900 border border-eco-700 p-6 rounded-3xl flex items-center justify-between group hover:border-eco-500 transition-all"
+            className="w-full bg-eco-900/20 border border-eco-500/30 text-eco-400 py-3 text-xs font-bold uppercase tracking-widest hover:bg-eco-500/10 transition-colors flex items-center justify-center gap-2"
         >
-            <div className="flex items-center gap-4">
-                <div className="bg-eco-500/20 p-3 rounded-full text-eco-400">
-                    <TrendingUp className="h-6 w-6" />
-                </div>
-                <div className="text-left">
-                    <h4 className="text-white font-bold text-lg">Check Global Ranking</h4>
-                    <p className="text-eco-300 text-sm">See how you compare to other eco-warriors</p>
-                </div>
-            </div>
-            <ArrowRight className="h-6 w-6 text-eco-500 group-hover:translate-x-2 transition-transform" />
+            {t.viewRankings} 
+            {lang === 'en' ? <ArrowRight className="h-4 w-4" /> : <ArrowRight className="h-4 w-4 rotate-180" />}
         </button>
+
+        <div className="mt-6 flex justify-center">
+            <a 
+                href="mailto:demon?subject=Feedback&body=Thx%20for%20the%20help%20;)"
+                className="group flex items-center gap-2 opacity-50 hover:opacity-100 transition-opacity"
+            >
+                <div className="p-1.5 rounded-md bg-eco-900/30 border border-eco-800 group-hover:border-eco-500/50">
+                    <Ghost className="h-3 w-3 text-eco-500" />
+                </div>
+                <span className="text-[10px] font-mono text-eco-600 group-hover:text-eco-400 uppercase tracking-widest">
+                    {t.sendFeedbackToDemon}
+                </span>
+            </a>
+        </div>
       </div>
     );
   };
 
-  if (!currentUser) {
-    return renderLogin();
-  }
-
   return (
-    <div className="min-h-screen bg-eco-950 text-eco-50 font-sans selection:bg-eco-500 selection:text-white">
-       {/* Background Noise/Gradient */}
-       <div className="fixed inset-0 z-0 pointer-events-none">
-          <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-eco-500/10 blur-[120px] rounded-full"></div>
-          <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-500/10 blur-[100px] rounded-full"></div>
-       </div>
-
-       {/* Streak Overlay - Renders on top of everything when active */}
-       {streakData.show && (
-         <StreakOverlay 
-           streak={streakData.val} 
-           type={streakData.type} 
-           onComplete={() => setStreakData({ ...streakData, show: false })} 
-         />
-       )}
-
-      <div className="relative z-10 flex flex-col md:flex-row min-h-screen max-w-7xl mx-auto">
-        {/* Navigation - Top on Mobile, Left Sidebar on Desktop (handled via sticky/fixed logic in Navbar component) */}
-        
-        <div className="w-full md:w-64 md:fixed md:h-screen md:py-8 md:pl-6 z-50">
-            <Navbar 
-                currentView={currentView} 
-                onChangeView={setCurrentView} 
-                currentUser={currentUser.name}
-                onLogout={handleLogout}
-            />
-        </div>
-
-        {/* Main Content Area */}
-        <main className="flex-1 p-4 md:p-8 md:ml-64 overflow-y-auto min-h-screen pb-24 md:pb-8 flex flex-col">
-            <header className="md:hidden flex justify-between items-center mb-6">
-                <div className="flex items-center gap-2">
-                    <Leaf className="h-6 w-6 text-eco-500" />
-                    <span className="font-bold text-xl text-white">EcoRank</span>
+    <div className="min-h-screen bg-[#050a0e] text-gray-100 relative" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+      {/* Beta Popup Warning */}
+      {showBetaPopup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-fade-in">
+            <div className="max-w-sm w-full bg-[#0a0a0a] border border-yellow-500/50 shadow-[0_0_40px_rgba(234,179,8,0.15)] animate-slide-up relative overflow-hidden">
+                <div className="relative z-10 p-1">
+                    <div className="bg-yellow-900/20 border-b border-yellow-500/30 p-3 flex items-center justify-between">
+                        <span className="text-[10px] font-mono text-yellow-500 uppercase tracking-widest font-bold">>> {t.betaTitle}</span>
+                        <div className="flex items-center gap-2">
+                             <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500"></span>
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div className="p-6 text-center font-mono">
+                        <div className="flex justify-center mb-4">
+                            <div className="p-3 bg-yellow-500/10 rounded-full border border-yellow-500/20">
+                                <AlertTriangle className="h-8 w-8 text-yellow-500" />
+                            </div>
+                        </div>
+                        
+                        <div className="mb-6 space-y-3 text-xs md:text-sm text-gray-300 leading-relaxed">
+                            <p className="uppercase font-bold text-yellow-500">{t.betaDesc}</p>
+                            
+                            <div className="bg-yellow-500/10 border-l-2 border-yellow-500 p-3 my-4 mx-1 text-left">
+                                <p className="text-white font-bold tracking-wider text-base">{t.eligible}</p>
+                            </div>
+                        </div>
+                        
+                        <button
+                            onClick={() => setShowBetaPopup(false)}
+                            className="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-black font-bold uppercase tracking-wider transition-all"
+                        >
+                            {t.understand}
+                        </button>
+                    </div>
                 </div>
-                <button onClick={handleLogout} className="text-xs text-eco-400 border border-eco-800 px-3 py-1 rounded-full">
-                    Logout
-                </button>
-            </header>
-
-            {currentView === AppView.HOME && renderDashboard()}
-            {currentView === AppView.LOG_ACTION && (
-                <ActionLog onPointsAwarded={handlePointsAwarded} />
-            )}
-            {currentView === AppView.LEADERBOARD && (
-                <Leaderboard users={users} currentUserId={currentUser.id} />
-            )}
-            {currentView === AppView.REWARDS && <Rewards />}
-            
-            {/* Dashboard Footer Credit */}
-            <div className="mt-auto pt-10 pb-4 text-center opacity-60">
-                 <p className="text-eco-500 text-[10px] uppercase tracking-widest font-bold">
-                    Made by Wadeea, Sharif, Adam, Mohammed from 10B1
-                 </p>
             </div>
-        </main>
-      </div>
+        </div>
+      )}
+
+      {!currentUser ? (
+        renderLogin()
+      ) : (
+        <div className="flex flex-col min-h-screen">
+            
+            {/* Tutorial Overlay for new users */}
+            {currentUser.hasCompletedTutorial === false && (
+                <TutorialOverlay onComplete={handleTutorialComplete} onChangeView={setCurrentView} lang={lang} />
+            )}
+
+            {/* Desktop Navigation placement */}
+            {currentUser && (
+               <Navbar 
+                  currentView={currentView} 
+                  onChangeView={setCurrentView} 
+                  currentUser={currentUser.name} 
+                  onLogout={handleLogout} 
+                  lang={lang}
+                  toggleLanguage={toggleLanguage}
+                  onOpenThemes={() => setIsThemeModalOpen(true)}
+               />
+            )}
+
+          <div className="flex-1 flex flex-col overflow-hidden relative">
+            
+            {/* Main Content Area */}
+            <main className="flex-1 overflow-y-auto p-4 pt-20 md:pt-4 scrollbar-hide pb-24 md:pb-4">
+               <div className="max-w-7xl mx-auto w-full">
+                {currentView === AppView.HOME && renderDashboard()}
+                {currentView === AppView.LEADERBOARD && <Leaderboard users={users} currentUserId={currentUser.id} lang={lang} />}
+                {currentView === AppView.LOG_ACTION && <ActionLog onPointsAwarded={handlePointsAwarded} lang={lang} />}
+                {currentView === AppView.REWARDS && <Rewards lang={lang} />}
+               </div>
+            </main>
+          </div>
+        </div>
+      )}
+      
+      {/* Streak Overlay */}
+      {streakData.show && (
+          <StreakOverlay 
+            streak={streakData.val} 
+            type={streakData.type} 
+            onComplete={() => setStreakData(prev => ({ ...prev, show: false }))} 
+          />
+      )}
+      
+      {/* Theme Modal */}
+      <ThemeModal 
+        isOpen={isThemeModalOpen}
+        onClose={() => setIsThemeModalOpen(false)}
+        currentThemeId={currentTheme.id}
+        onThemeSelect={handleThemeChange}
+        lang={lang}
+      />
     </div>
   );
 }
