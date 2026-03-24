@@ -2,6 +2,9 @@
 export interface Theme {
   id: string;
   name: string;
+  customImageUrl?: string;
+  customAnimation?: string;
+  isAbstract?: boolean;
   colors: {
     50: string;
     100: string;
@@ -125,11 +128,19 @@ export const themes: Theme[] = [
     }
   },
   {
-    id: 'pixel-cat',
-    name: 'TamTam',
+    id: 'pixel-cat-gray',
+    name: 'TamTam (Gray)',
     colors: { // Amber/Grey mix based on the cat
       50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d', 400: '#fbbf24',
       500: '#f59e0b', 600: '#d97706', 700: '#b45309', 800: '#92400e', 900: '#78350f', 950: '#1e293b'
+    }
+  },
+  {
+    id: 'pixel-cat-white',
+    name: 'TamTam (White)',
+    colors: { // Blue/White mix based on the cat
+      50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd', 400: '#60a5fa',
+      500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a', 950: '#1e293b'
     }
   },
   {
@@ -177,7 +188,7 @@ export const applyTheme = (theme: Theme, isDark: boolean = true) => {
   }
 
   // Handle Pixel Cat Theme Body Class
-  if (theme.id === 'pixel-cat') {
+  if (theme.id === 'pixel-cat-gray' || theme.id === 'pixel-cat-white') {
     document.body.classList.add('theme-pixel-cat');
   } else {
     document.body.classList.remove('theme-pixel-cat');

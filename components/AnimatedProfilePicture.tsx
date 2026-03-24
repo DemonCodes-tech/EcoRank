@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 
 interface AnimatedProfilePictureProps {
   profilePicture?: string;
-  borderType?: 'none' | 'cat' | 'snake' | 'pixel-cat' | 'pixel-snake';
+  borderType?: 'none' | 'cat' | 'snake' | 'pixel-cat-gray' | 'pixel-cat-white' | 'pixel-snake';
   size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
   themeId?: string;
@@ -46,7 +46,8 @@ const AnimatedProfilePicture: React.FC<AnimatedProfilePictureProps> = ({
     nebula: '#ec4899',
     indigo: '#6366f1',
     pixel: '#ec4899',
-    'pixel-cat': '#f59e0b',
+    'pixel-cat-gray': '#f59e0b',
+    'pixel-cat-white': '#3b82f6',
     parrot: '#ef4444',
     smiski: '#c5e1a5'
   };
@@ -57,50 +58,25 @@ const AnimatedProfilePicture: React.FC<AnimatedProfilePictureProps> = ({
     <div className={`relative ${sizeClasses[size]} ${className}`}>
       {/* Animated Borders */}
       
-      {(borderType === 'pixel-cat' || borderType === 'cat') && (
+      {(borderType === 'pixel-cat-gray' || borderType === 'pixel-cat-white' || borderType === 'cat') && (
         <div className="absolute -inset-5 pointer-events-none z-10">
-          <motion.div
-            animate={{
-              rotate: 360
-            }}
-            transition={{
-              duration: 12, // Slower, more graceful rotation
-              repeat: Infinity,
-              ease: "linear"
-            }}
-            className="absolute inset-0"
-          >
-            <motion.div
-              animate={{
-                scale: [1, 1.05, 1],
-                y: [0, -6, 0], // Gentler bounce
-                rotate: [-8, 8, -8] // Gentler wiggle
-              }}
-              transition={{
-                duration: 1.2, // Slower, more natural movement
-                repeat: Infinity,
-                ease: "easeInOut"
-              }}
-              className="absolute top-0 left-1/2 -translate-x-1/2 w-12 h-12"
-            >
-              <svg viewBox="0 0 32 32" className="w-full h-full drop-shadow-lg">
-                <path fill="#f8fafc" d="M10 6h2v2h-2z M20 6h2v2h-2z" />
-                <path fill="#94a3b8" d="M8 8h16v12H8z" /> {/* Gray body */}
-                <path fill="#475569" d="M6 10h2v10H6z M24 10h2v10h-2z" />
-                <path fill="#f59e0b" d="M11 12h3v3h-3z M18 12h3v3h-3z" />
+          <div className="absolute inset-0">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-12 h-12">
+              <svg viewBox="0 0 32 32" className="w-full h-full drop-shadow-lg" overflow="visible">
+                <path fill={borderType === 'pixel-cat-white' ? '#e2e8f0' : '#f8fafc'} d="M10 6h2v2h-2z M20 6h2v2h-2z" />
+                <path fill={borderType === 'pixel-cat-white' ? '#ffffff' : '#94a3b8'} d="M8 8h16v12H8z" /> {/* Body */}
+                <path fill={borderType === 'pixel-cat-white' ? '#94a3b8' : '#475569'} d="M6 10h2v10H6z M24 10h2v10h-2z" />
+                <path fill={borderType === 'pixel-cat-gray' || borderType === 'cat' ? '#f97316' : '#3b82f6'} d="M11 12h3v3h-3z M18 12h3v3h-3z" /> {/* Eyes */}
                 <path fill="#0f172a" d="M12 13h1v1h-1z M19 13h1v1h-1z" />
                 <path fill="#f472b6" d="M15 16h2v1h-2z" />
-                <path fill="#94a3b8" d="M10 20h3v4h-3z M19 20h3v4h-3z" /> {/* Gray legs */}
-                <motion.path 
-                  fill="#475569" 
+                <path fill={borderType === 'pixel-cat-white' ? '#94a3b8' : '#94a3b8'} d="M10 20h3v4h-3z M19 20h3v4h-3z" /> {/* Legs */}
+                <path 
+                  fill={borderType === 'pixel-cat-white' ? '#94a3b8' : '#475569'} 
                   d="M26 12h4v8h-4z"
-                  animate={{ rotate: [0, 30, 0] }} // Gentler tail wag
-                  transition={{ duration: 0.8, repeat: Infinity, ease: "easeInOut" }}
-                  style={{ originX: "26px", originY: "16px" }}
                 />
               </svg>
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
         </div>
       )}
 

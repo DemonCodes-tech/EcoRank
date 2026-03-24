@@ -10,7 +10,7 @@ interface ProfileProps {
   users: User[];
   onUpdateUser: (updatedUser: User) => void;
   onUpdateUsers: (updatedUsers: User[]) => void;
-  onCreateUser: (name: string, pin: string, section: string, role: 'student' | 'moderator' | 'admin') => void;
+  onCreateUser: (name: string, pin: string, section: string, role: 'student' | 'moderator' | 'admin' | 'beta') => void;
   onDeleteUser: (userId: string) => void;
   lang: Language;
   themeId?: string;
@@ -29,7 +29,7 @@ const Profile: React.FC<ProfileProps> = ({ currentUser, users, onUpdateUser, onU
   const [newUserName, setNewUserName] = useState('');
   const [newUserPin, setNewUserPin] = useState('');
   const [newUserSection, setNewUserSection] = useState('10b1');
-  const [newUserRole, setNewUserRole] = useState<'student' | 'moderator' | 'admin'>('student');
+  const [newUserRole, setNewUserRole] = useState<'student' | 'moderator' | 'admin' | 'beta'>('student');
   const [showCreateForm, setShowCreateForm] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -189,6 +189,7 @@ const Profile: React.FC<ProfileProps> = ({ currentUser, users, onUpdateUser, onU
   const pendingNicknameUsers = users.filter(u => u.nicknameStatus === 'pending' && u.pendingNickname);
   const pendingPinResets = users.filter(u => u.pinResetStatus === 'pending' && u.pendingPin);
   const moderators = users.filter(u => u.role === 'moderator');
+  const betaTesters = users.filter(u => u.role === 'beta');
   const students = users.filter(u => u.role === 'student' || !u.role);
 
   const handleModeratePinReset = (userId: string, isApproved: boolean) => {
@@ -351,7 +352,8 @@ const Profile: React.FC<ProfileProps> = ({ currentUser, users, onUpdateUser, onU
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { id: 'none', label: 'None' },
-                  { id: 'pixel-cat', label: 'Cat' },
+                  { id: 'pixel-cat-gray', label: 'Cat (Gray)' },
+                  { id: 'pixel-cat-white', label: 'Cat (White)' },
                   { id: 'pixel-snake', label: 'Snake' }
                 ].map((border) => (
                   <button
@@ -447,9 +449,10 @@ const Profile: React.FC<ProfileProps> = ({ currentUser, users, onUpdateUser, onU
                 <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border ${
                   currentUser.role === 'admin' ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' :
                   currentUser.role === 'moderator' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                  currentUser.role === 'beta' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' :
                   'bg-eco-500/20 text-eco-400 border-eco-500/30'
                 }`}>
-                  {currentUser.role === 'admin' ? 'Admin' : currentUser.role === 'moderator' ? 'Moderator' : 'Student'}
+                  {currentUser.role === 'admin' ? 'Admin' : currentUser.role === 'moderator' ? 'Moderator' : currentUser.role === 'beta' ? 'Beta Tester' : 'Student'}
                 </span>
                 <span className="px-2 py-1 bg-white/10 border border-white/10 text-gray-300 rounded text-[10px] font-bold uppercase tracking-wider">
                   Section {currentUser.section || 'N/A'}
@@ -579,6 +582,7 @@ const Profile: React.FC<ProfileProps> = ({ currentUser, users, onUpdateUser, onU
                       <option value="student">{t.student}</option>
                       <option value="moderator">{t.moderator}</option>
                       {currentUser.role === 'admin' && <option value="admin">{t.admin}</option>}
+                      {currentUser.role === 'admin' && <option value="beta">Beta Tester</option>}
                     </select>
                   </div>
                   <div className="md:col-span-2 pt-2">
@@ -630,6 +634,35 @@ const Profile: React.FC<ProfileProps> = ({ currentUser, users, onUpdateUser, onU
                             className="w-full py-2 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 rounded-xl text-sm font-bold transition-all"
                           >
                             Demote to Student
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                  <Shield className="h-5 w-5 text-yellow-500" />
+                  {currentUser.role === 'admin' ? 'Admin Panel - Beta Testers' : 'Moderator Panel - Beta Testers'}
+                </h2>
+                {betaTesters.length === 0 ? (
+                  <p className="text-gray-400 text-sm text-center py-4">No beta testers found.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                    {betaTesters.map(bt => (
+                      <div key={bt.id} className="bg-black/20 p-4 rounded-2xl border border-white/5 flex flex-col items-center gap-4">
+                        <div className="text-center">
+                          <p className="text-white font-medium">{bt.name}</p>
+                          <p className="text-xs text-gray-400">Section {bt.section || 'N/A'}</p>
+                        </div>
+                        <div className="w-full flex flex-col gap-2">
+                          <button
+                            onClick={() => handleDeleteUserClick(bt.id)}
+                            className="w-full py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-xl text-sm font-bold transition-all"
+                          >
+                            {t.deleteUser}
                           </button>
                         </div>
                       </div>

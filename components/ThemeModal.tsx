@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Theme, themes, applyTheme } from '../services/themes';
-import { X, Palette, Check, Zap, Download, Monitor, Smartphone } from 'lucide-react';
+import { X, Palette, Check, Zap, Download, Monitor, Smartphone, Upload, Loader2 } from 'lucide-react';
 import { Language, User } from '../types';
 import { translations } from '../services/translations';
 
@@ -16,12 +16,191 @@ interface ThemeModalProps {
 
 const ThemeModal: React.FC<ThemeModalProps> = ({ isOpen, onClose, currentThemeId, onThemeSelect, lang, currentUser }) => {
   const t = translations[lang];
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
   const handleSelect = (theme: Theme) => {
     applyTheme(theme);
     onThemeSelect(theme);
+  };
+
+  const pixelateImage = (dataUrl: string, pixelSize: number = 0.05): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(dataUrl);
+
+        let targetWidth = img.width;
+        let targetHeight = img.height;
+        const maxSize = 1024;
+
+        if (targetWidth > maxSize || targetHeight > maxSize) {
+          const ratio = Math.min(maxSize / targetWidth, maxSize / targetHeight);
+          targetWidth = Math.floor(targetWidth * ratio);
+          targetHeight = Math.floor(targetHeight * ratio);
+        }
+
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        
+        const w = Math.max(1, Math.floor(targetWidth * pixelSize));
+        const h = Math.max(1, Math.floor(targetHeight * pixelSize));
+        
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) return resolve(dataUrl);
+
+        tempCtx.drawImage(img, 0, 0, w, h);
+        
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(tempCanvas, 0, 0, w, h, 0, 0, canvas.width, canvas.height);
+        
+        resolve(canvas.toDataURL('image/png', 0.8));
+      };
+      img.src = dataUrl;
+    });
+  };
+
+  const removeGreenBackground = (dataUrl: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(dataUrl);
+
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+        
+        // Assume top-left pixel is the background color (should be #00FF00 green)
+        const r = data[0], g = data[1], b = data[2];
+        
+        for (let i = 0; i < data.length; i += 4) {
+          // If color is close to background color, make transparent
+          if (Math.abs(data[i] - r) < 30 && Math.abs(data[i+1] - g) < 30 && Math.abs(data[i+2] - b) < 30) {
+            data[i+3] = 0;
+          }
+        }
+        
+        ctx.putImageData(imageData, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.src = dataUrl;
+    });
+  };
+
+  const downscaleImage = (dataUrl: string, maxSize: number = 1024): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width <= maxSize && height <= maxSize) {
+          return resolve(dataUrl);
+        }
+        
+        const ratio = Math.min(maxSize / width, maxSize / height);
+        width = Math.floor(width * ratio);
+        height = Math.floor(height * ratio);
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(dataUrl);
+        
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
+      };
+      img.src = dataUrl;
+    });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setUploadError(null);
+
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64Data = reader.result as string;
+        const downscaledBase64 = await downscaleImage(base64Data);
+
+        const response = await fetch('/api/theme/process-image', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({ imageBase64: downscaledBase64 })
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error('Server error response:', errText);
+          try {
+            const errJson = JSON.parse(errText);
+            throw new Error(errJson.error || 'Failed to process image');
+          } catch (e) {
+            throw new Error(errText || 'Failed to process image');
+          }
+        }
+
+        const data = await response.json();
+        
+        let finalImageUrl = data.pixelArtImage;
+        if (data.isAbstract) {
+           finalImageUrl = await pixelateImage(downscaledBase64);
+        } else if (finalImageUrl) {
+           finalImageUrl = await removeGreenBackground(finalImageUrl);
+        }
+
+        const customTheme: Theme = {
+          id: `custom-${Date.now()}`,
+          name: 'Custom Theme',
+          isAbstract: data.isAbstract,
+          customImageUrl: finalImageUrl,
+          customAnimation: data.animationStyle || 'none',
+          colors: {
+            50: '#f8fafc',
+            100: '#f1f5f9',
+            200: '#e2e8f0',
+            300: '#cbd5e1',
+            400: '#94a3b8',
+            500: '#64748b',
+            600: '#475569',
+            700: '#334155',
+            800: '#1e293b',
+            900: '#0f172a',
+            950: '#020617'
+          }
+        };
+
+        handleSelect(customTheme);
+      };
+      reader.readAsDataURL(file);
+    } catch (error: any) {
+      console.error('Error uploading image:', error);
+      setUploadError(error.message || 'Failed to process image. Please try again.');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   const downloadThemeWallpaper = async (e: React.MouseEvent, theme: Theme, type: 'desktop' | 'mobile') => {
@@ -77,10 +256,11 @@ const ThemeModal: React.FC<ThemeModalProps> = ({ isOpen, onClose, currentThemeId
                     <div class="smiski-figure smiski-lotus" style="animation: none !important;"></div>
                 </div>
             `;
-        } else if (theme.id === 'pixel-cat') {
+        } else if (theme.id === 'pixel-cat-gray' || theme.id === 'pixel-cat-white') {
+            const isWhite = theme.id === 'pixel-cat-white';
             innerHTML = `
-                <div class="pixel-cat-container" style="width: 100%; height: 100%; position: relative; overflow: hidden; background: radial-gradient(circle at center, #334155 0%, #0f172a 100%);">
-                    <div class="pixel-cat-figure" style="animation: none !important;"></div>
+                <div class="pixel-cat-container" style="width: 100%; height: 100%; position: relative; overflow: hidden; background: radial-gradient(circle at center, ${isWhite ? '#94a3b8' : '#334155'} 0%, #0f172a 100%);">
+                    <div class="pixel-cat-figure ${isWhite ? 'white-cat' : 'gray-cat'}" style="animation: none !important;"></div>
                     <div class="pixel-yarn yarn-1" style="animation: none !important; transform: rotate(45deg);"></div>
                     <div class="pixel-yarn yarn-2" style="animation: none !important; transform: scale(0.7) rotate(120deg);"></div>
                     <div class="pixel-yarn yarn-3" style="animation: none !important; transform: scale(1.2) rotate(-30deg);"></div>
@@ -372,19 +552,42 @@ const ThemeModal: React.FC<ThemeModalProps> = ({ isOpen, onClose, currentThemeId
                 <span className="text-xs text-eco-400">12 Presets Available</span>
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors"
-          >
-            <X className="h-6 w-6" />
-          </button>
+          <div className="flex items-center gap-4">
+            <input 
+              type="file" 
+              accept="image/*" 
+              className="hidden" 
+              ref={fileInputRef} 
+              onChange={handleFileUpload} 
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className="flex items-center gap-2 px-4 py-2 bg-eco-500/20 hover:bg-eco-500/30 text-eco-400 rounded-full transition-colors border border-eco-500/30 disabled:opacity-50"
+            >
+              {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              <span className="text-sm font-medium">{isUploading ? 'Processing...' : 'Upload Custom'}</span>
+            </button>
+            <button 
+              onClick={onClose}
+              className="p-2 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
         </div>
+
+        {uploadError && (
+          <div className="px-6 py-3 bg-red-500/20 text-red-400 text-sm border-b border-red-500/30">
+            {uploadError}
+          </div>
+        )}
 
         {/* Grid */}
         <div className="flex-1 overflow-y-auto p-8 scrollbar-hide relative z-10">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                 {themes.filter(theme => {
-                    if (theme.id === 'pixel-cat') {
+                    if (theme.id === 'pixel-cat-gray' || theme.id === 'pixel-cat-white') {
                         return currentUser?.name.toLowerCase() === 'laya';
                     }
                     return true;

@@ -5,12 +5,17 @@ const USERS_API = '/api/users';
 const LEADERBOARD_API = '/api/leaderboard';
 const ME_API = '/api/auth/me';
 
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
+
 /**
  * Checks if the current user is authenticated and returns their data.
  */
 export const getCurrentUser = async (): Promise<User | null> => {
   try {
-    const response = await fetch(ME_API);
+    const response = await fetch(ME_API, { headers: getAuthHeaders() });
     if (response.ok) {
       return await response.json();
     }
@@ -25,7 +30,7 @@ export const getCurrentUser = async (): Promise<User | null> => {
  */
 export const getLeaderboard = async (): Promise<User[]> => {
   try {
-    const response = await fetch(LEADERBOARD_API);
+    const response = await fetch(LEADERBOARD_API, { headers: getAuthHeaders() });
     if (response.ok) {
       const users = await response.json();
       if (Array.isArray(users)) {
@@ -43,7 +48,7 @@ export const getLeaderboard = async (): Promise<User[]> => {
  */
 export const getStoredUsers = async (): Promise<User[]> => {
   try {
-    const response = await fetch(USERS_API);
+    const response = await fetch(USERS_API, { headers: getAuthHeaders() });
     if (response.ok) {
       const users = await response.json();
       if (Array.isArray(users)) {
@@ -71,7 +76,7 @@ export const saveUserUpdate = async (user: User): Promise<void> => {
   try {
     await fetch(`${USERS_API}/${user.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(user)
     });
   } catch (error) {
@@ -87,7 +92,7 @@ export const saveStoredUsers = async (users: User[]): Promise<void> => {
     localStorage.setItem(DB_KEY, JSON.stringify(users));
     await fetch(USERS_API, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(users)
     });
   } catch (error) {

@@ -4,7 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export const CatImageGenerator: React.FC<{
-  type: 'pixel-cat' | 'licking-cat';
+  type: 'pixel-cat-gray' | 'pixel-cat-white' | 'licking-cat';
   prompt: string;
   className?: string;
 }> = ({ type, prompt, className }) => {

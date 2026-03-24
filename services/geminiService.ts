@@ -58,6 +58,7 @@ export const analyzeEcoAction = async (
       1. **Image Manipulation**: Scrutinize the image/video for signs of Photoshop, AI generation artifacts, unnatural lighting, or inconsistent shadows.
       2. **Video Repetition**: If a video is provided, check for looping frames, unnatural cuts, or signs of a reused clip.
       3. **Location Cross-Reference**: ${locationData ? `The user's device reported location is Latitude: ${locationData.lat}, Longitude: ${locationData.lng}. Check if the background environment is plausible for a real-world location and not a green screen or digitally altered background.` : 'No location data provided. Rely strictly on visual evidence.'}
+      4. **Environmental Context**: Analyze the background to ensure it aligns with typical outdoor or indoor environments where eco-actions occur, rather than artificial settings like studios or green screens. Check for natural lighting conditions and common environmental cues (e.g., presence of trees, sky, buildings, or typical indoor elements). If the background seems artificial or inconsistent with a real-world location, reduce the confidence score and add a comment like 'Background context seems artificial or inconsistent.'
       If ANY fraud is detected, set isVerified to false, points to 0, and mention the fraud in the comment.
 
       **TRASH & TRASH CAN IDENTIFICATION TRAINING**:

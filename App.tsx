@@ -26,6 +26,8 @@ import { translations } from './services/translations';
 import { getSavedTheme, applyTheme, Theme, getSavedMode } from './services/themes';
 import { playSound } from './services/soundService';
 
+import { LandingPage } from './components/LandingPage';
+
 const COLORS = ['#10b981', '#059669', '#047857', '#34d399', '#6ee7b7'];
 
 // Helper to detect older or low-end devices (pre-2020)
@@ -71,6 +73,7 @@ function App() {
   const [resetUsername, setResetUsername] = useState('');
   const [newPinInput, setNewPinInput] = useState('');
   const [resetUser, setResetUser] = useState<User | null>(null);
+  const [showLogin, setShowLogin] = useState(false);
   
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(() => {
     const saved = localStorage.getItem('eco_onboarding_complete');
@@ -639,12 +642,19 @@ function App() {
 
   const renderLogin = () => (
     <motion.div 
+        key="login"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
-        className="w-full h-full flex items-center justify-center p-4 relative z-10 overflow-y-auto"
+        className="w-full min-h-screen flex items-center justify-center p-4 relative z-10"
     >
       <div className="w-full max-w-md my-auto">
+        <div className="absolute top-4 left-4 z-50">
+            <button onClick={() => setShowLogin(false)} className="flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 text-gray-300 rounded-full hover:bg-white/10 transition-all text-xs font-medium">
+                <ArrowRight className={`h-4 w-4 ${lang === 'ar' ? '' : 'rotate-180'}`} />
+                {lang === 'ar' ? 'العودة' : 'Back'}
+            </button>
+        </div>
         <div className="absolute top-4 right-4 z-50">
             <button onClick={toggleLanguage} className="flex items-center gap-2 px-3 py-1 bg-eco-900/40 border border-eco-500/30 text-eco-400 rounded-full hover:bg-eco-500/20 transition-all text-xs font-medium">
                 <Globe className="h-4 w-4" />
@@ -932,7 +942,7 @@ function App() {
           </AnimatePresence>
         ) : !currentUser ? (
           <AnimatePresence mode="wait">
-              {renderLogin()}
+              {showLogin ? renderLogin() : <LandingPage key="landing" onLoginClick={() => setShowLogin(true)} lang={lang} />}
           </AnimatePresence>
         ) : (
           <>

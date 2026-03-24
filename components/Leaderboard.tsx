@@ -15,12 +15,14 @@ interface LeaderboardProps {
 const Leaderboard: React.FC<LeaderboardProps> = ({ users, currentUserId, lang, themeId }) => {
   const [sortBy, setSortBy] = useState<'points' | 'actions' | 'streak'>('points');
 
-  const sortedUsers = [...users].sort((a, b) => {
-    if (sortBy === 'points') return b.totalPoints - a.totalPoints;
-    if (sortBy === 'actions') return b.actions.length - a.actions.length;
-    if (sortBy === 'streak') return b.currentStreak - a.currentStreak;
-    return 0;
-  });
+  const sortedUsers = [...users]
+    .filter(u => u.name !== 'BT')
+    .sort((a, b) => {
+      if (sortBy === 'points') return b.totalPoints - a.totalPoints;
+      if (sortBy === 'actions') return b.actions.length - a.actions.length;
+      if (sortBy === 'streak') return b.currentStreak - a.currentStreak;
+      return 0;
+    });
 
   const t = translations[lang];
 
