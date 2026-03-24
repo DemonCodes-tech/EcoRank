@@ -1,6 +1,10 @@
+
 export interface Theme {
   id: string;
   name: string;
+  customImageUrl?: string;
+  customAnimation?: string;
+  isAbstract?: boolean;
   colors: {
     50: string;
     100: string;
@@ -93,7 +97,7 @@ export const themes: Theme[] = [
   },
   {
     id: 'azure',
-    name: 'Azure Sky',
+    name: 'Boys section',
     colors: { // Sky Blue
       50: '#f0f9ff', 100: '#e0f2fe', 200: '#bae6fd', 300: '#7dd3fc', 400: '#38bdf8',
       500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1', 800: '#075985', 900: '#0c4a6e', 950: '#082f49'
@@ -101,7 +105,7 @@ export const themes: Theme[] = [
   },
   {
     id: 'nebula',
-    name: 'Cosmic Dust',
+    name: 'Girls section',
     colors: { // Pink
       50: '#fdf2f8', 100: '#fce7f3', 200: '#fbcfe8', 300: '#f9a8d4', 400: '#f472b6',
       500: '#ec4899', 600: '#db2777', 700: '#be185d', 800: '#9d174d', 900: '#831843', 950: '#500724'
@@ -114,16 +118,101 @@ export const themes: Theme[] = [
       50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc', 400: '#818cf8',
       500: '#6366f1', 600: '#4f46e5', 700: '#4338ca', 800: '#3730a3', 900: '#312e81', 950: '#1e1b4b'
     }
+  },
+  {
+    id: 'pixel',
+    name: 'Pixel Pond',
+    colors: { // Nature/Pond colors
+      50: '#fdf2f8', 100: '#fce7f3', 200: '#fbcfe8', 300: '#f9a8d4', 400: '#f472b6',
+      500: '#ec4899', 600: '#db2777', 700: '#be185d', 800: '#9d174d', 900: '#831843', 950: '#2d4a53'
+    }
+  },
+  {
+    id: 'pixel-cat-gray',
+    name: 'TamTam (Gray)',
+    colors: { // Amber/Grey mix based on the cat
+      50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d', 400: '#fbbf24',
+      500: '#f59e0b', 600: '#d97706', 700: '#b45309', 800: '#92400e', 900: '#78350f', 950: '#1e293b'
+    }
+  },
+  {
+    id: 'pixel-cat-white',
+    name: 'TamTam (White)',
+    colors: { // Blue/White mix based on the cat
+      50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd', 400: '#60a5fa',
+      500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a', 950: '#1e293b'
+    }
+  },
+  {
+    id: 'parrot',
+    name: 'Tropical Parrot',
+    colors: { // Tropical/Parrot colors (Red/Green/Blue/Yellow mix - dominant Green/Red)
+      50: '#fef2f2', 100: '#fee2e2', 200: '#fecaca', 300: '#fca5a5', 400: '#f87171',
+      500: '#ef4444', 600: '#dc2626', 700: '#b91c1c', 800: '#991b1b', 900: '#7f1d1d', 950: '#1a2e05' 
+    }
+  },
+  {
+    id: 'smiski',
+    name: 'Smiski Glow',
+    colors: { // Soft pale greens and pinks matching the image
+      50: '#fdfbf7',  // Off-white background
+      100: '#f9f5f0',
+      200: '#f3e8f0', // Soft pink hint
+      300: '#e8f0d8', // Pale Smiski green
+      400: '#d4e6b5', // Smiski green
+      500: '#c5e1a5', // Primary Smiski green
+      600: '#9ccc65', // Darker green for contrast
+      700: '#7cb342',
+      800: '#558b2f',
+      900: '#33691e',
+      950: '#1a3300'
+    }
   }
 ];
 
-export const applyTheme = (theme: Theme) => {
+export const applyTheme = (theme: Theme, isDark: boolean = true) => {
   const root = document.documentElement;
+  
+  // Handle Pixel Theme Body Class
+  if (theme.id === 'pixel') {
+    document.body.classList.add('theme-pixel');
+  } else {
+    document.body.classList.remove('theme-pixel');
+  }
+
+  // Handle Parrot Theme Body Class
+  if (theme.id === 'parrot') {
+    document.body.classList.add('theme-parrot');
+  } else {
+    document.body.classList.remove('theme-parrot');
+  }
+
+  // Handle Pixel Cat Theme Body Class
+  if (theme.id === 'pixel-cat-gray' || theme.id === 'pixel-cat-white') {
+    document.body.classList.add('theme-pixel-cat');
+  } else {
+    document.body.classList.remove('theme-pixel-cat');
+  }
+
+  // Handle Smiski Theme Body Class
+  if (theme.id === 'smiski') {
+    document.body.classList.add('theme-smiski');
+  } else {
+    document.body.classList.remove('theme-smiski');
+  }
+  
+  // Always enforce Dark Mode
   Object.entries(theme.colors).forEach(([shade, value]) => {
     root.style.setProperty(`--eco-${shade}`, value);
   });
+  root.style.setProperty('--bg-overlay', 'rgba(0, 0, 0, 0.8)');
   
   localStorage.setItem('ecorank_theme', JSON.stringify(theme));
+  localStorage.setItem('ecorank_mode', 'dark');
+};
+
+export const getSavedMode = (): boolean => {
+    return true; // Always dark mode
 };
 
 export const getSavedTheme = (): Theme => {
@@ -135,5 +224,6 @@ export const getSavedTheme = (): Theme => {
   } catch (e) {
     console.error("Failed to load theme", e);
   }
+  // Default to Matrix theme
   return themes[0];
 };

@@ -1,43 +1,184 @@
-import React, { useState, useEffect } from 'react';
-import { User, AppView, EcoAction, Language } from './types';
-import Navbar from './components/Navbar';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { AnimatePresence, motion, MotionConfig } from 'framer-motion';
+import { User, AppView, EcoAction, Language, Reminder } from './types';
+import { Navbar } from './components/Navbar';
 import ActionLog from './components/ActionLog';
 import Leaderboard from './components/Leaderboard';
 import Rewards from './components/Rewards';
+import Reminders from './components/Reminders';
 import StreakOverlay from './components/StreakOverlay';
+import NotificationOverlay from './components/NotificationOverlay';
 import TutorialOverlay from './components/TutorialOverlay';
+import ModTutorialOverlay from './components/ModTutorialOverlay';
+import Onboarding from './components/Onboarding';
 import ThemeModal from './components/ThemeModal';
-import { ArrowRight, Terminal, Code, AlertTriangle, Ghost, Globe } from 'lucide-react';
+import About from './components/About';
+import Analytics from './components/Analytics';
+import FAQ from './components/FAQ';
+import Profile from './components/Profile';
+import Moderation from './components/Moderation';
+import { ArrowRight, Terminal, Code, AlertTriangle, Ghost, Globe, Cpu, HardDrive, Wifi, Zap, Loader2, Moon, Star, Heart, Leaf, Lightbulb, Shield } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-import { getStoredUsers, saveStoredUsers } from './services/storageService';
+import { getLeaderboard, getCurrentUser, saveUserUpdate, saveStoredUsers, getStoredUsers } from './services/storageService';
+import { getLogicalDateStr, getYesterdayLogicalDateStr } from './services/dateUtils';
 import { translations } from './services/translations';
-import { getSavedTheme, applyTheme, Theme } from './services/themes';
+import { getSavedTheme, applyTheme, Theme, getSavedMode } from './services/themes';
+import { playSound } from './services/soundService';
 
 const COLORS = ['#10b981', '#059669', '#047857', '#34d399', '#6ee7b7'];
 
+// Helper to detect older or low-end devices (pre-2020)
+const isOlderDevice = () => {
+  if (typeof window === 'undefined') return false;
+  const ua = navigator.userAgent;
+  
+  // iOS < 14 (Released Sept 2020)
+  const iosMatch = ua.match(/OS (\d+)_/);
+  if (iosMatch && parseInt(iosMatch[1], 10) < 14) return true;
+  
+  // Android < 11 (Released Sept 2020)
+  const androidMatch = ua.match(/Android (\d+)/);
+  if (androidMatch && parseInt(androidMatch[1], 10) < 11) return true;
+  
+  // macOS < 11 (Big Sur, late 2020)
+  const macMatch = ua.match(/Mac OS X 10_(\d+)/);
+  if (macMatch && parseInt(macMatch[1], 10) <= 15) return true;
+  
+  // Hardware heuristics for Windows/Linux/Unknown
+  const cores = navigator.hardwareConcurrency;
+  const memory = (navigator as any).deviceMemory;
+  
+  if (cores && cores <= 4) return true;
+  if (memory && memory <= 4) return true;
+  
+  return false;
+};
+
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [originalAdminUser, setOriginalAdminUser] = useState<User | null>(null);
   const [nameInput, setNameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [sectionInput, setSectionInput] = useState('10b1'); // Default section
   const [users, setUsers] = useState<User[]>([]); 
   const [currentView, setCurrentView] = useState<AppView>(AppView.HOME);
-  const [showBetaPopup, setShowBetaPopup] = useState(true);
-  const [lang, setLang] = useState<Language>('en'); // Language State
+  const [lang, setLang] = useState<Language>('en'); 
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [currentTheme, setCurrentTheme] = useState<Theme>(getSavedTheme());
-
-  const [streakData, setStreakData] = useState<{ show: boolean; val: number; type: 'started' | 'continued' }>({ 
-    show: false, val: 0, type: 'started' 
+  const [isForgotPin, setIsForgotPin] = useState(false);
+  const [forgotPinStep, setForgotPinStep] = useState<1 | 2>(1); // 1: username, 2: new pin
+  const [resetUsername, setResetUsername] = useState('');
+  const [newPinInput, setNewPinInput] = useState('');
+  const [resetUser, setResetUser] = useState<User | null>(null);
+  
+  const [hasSeenOnboarding, setHasSeenOnboarding] = useState(() => {
+    const saved = localStorage.getItem('eco_onboarding_complete');
+    if (saved) return saved === 'true';
+    
+    // Skip heavy onboarding on older devices
+    if (isOlderDevice()) {
+        localStorage.setItem('eco_onboarding_complete', 'true');
+        return true;
+    }
+    return false;
   });
 
-  const t = translations[lang]; // Helper for current language
+  // Low Power Mode State
+  const [isLowPowerMode, setIsLowPowerMode] = useState(() => {
+      const saved = localStorage.getItem('eco_low_opt');
+      if (saved) return JSON.parse(saved);
+      
+      // Auto-detect reduced motion preference
+      if (typeof window !== 'undefined' && window.matchMedia) {
+          if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+              return true;
+          }
+      }
+      
+      // Auto-detect older devices (pre-2020 or low-end)
+      return isOlderDevice();
+  });
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [bootStep, setBootStep] = useState(0);
+  const [displayPoints, setDisplayPoints] = useState(0);
+  const [streakData, setStreakData] = useState<{ show: boolean; val: number; type: 'started' | 'continued' | 'lost' }>({ 
+    show: false, val: 0, type: 'started' 
+  });
+  const [activeAlert, setActiveAlert] = useState<{ title: string; time: string } | null>(null);
+  const lastAlertTimeRef = useRef<string | null>(null);
+
+  const t = translations[lang];
 
   useEffect(() => {
-    const loadedUsers = getStoredUsers();
-    setUsers(loadedUsers);
-    
-    // Apply initial theme
-    applyTheme(currentTheme);
+    // Minimal boot sequence
+    const timer = setTimeout(() => setIsLoading(false), 1500);
+    return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('eco_low_opt', JSON.stringify(isLowPowerMode));
+  }, [isLowPowerMode]);
+
+  useEffect(() => {
+    const initApp = async () => {
+      const user = await getCurrentUser();
+      if (user) {
+        setCurrentUser(user);
+        setDisplayPoints(user.totalPoints);
+      }
+      
+      const leaderboardData = await getLeaderboard();
+      setUsers(leaderboardData);
+      
+      if (user && (user.role === 'admin' || user.role === 'moderator')) {
+        const allUsers = await getStoredUsers();
+        setUsers(allUsers);
+      }
+      
+      applyTheme(currentTheme, true);
+      setIsLoading(false);
+    };
+    initApp();
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (displayPoints !== currentUser.totalPoints) {
+        const diff = currentUser.totalPoints - displayPoints;
+        const step = Math.ceil(Math.abs(diff) / 20) || 1; 
+        const timer = setInterval(() => {
+            setDisplayPoints(prev => {
+                const remaining = currentUser.totalPoints - prev;
+                if (Math.abs(remaining) <= step) {
+                    clearInterval(timer);
+                    return currentUser.totalPoints;
+                }
+                return prev + (diff > 0 ? step : -step);
+            });
+        }, 30);
+        return () => clearInterval(timer);
+    }
+  }, [currentUser?.totalPoints, displayPoints]);
+
+  useEffect(() => {
+      if (!currentUser || !currentUser.reminders) return;
+      const checkInterval = setInterval(() => {
+          const now = new Date();
+          const currentHours = String(now.getHours()).padStart(2, '0');
+          const currentMinutes = String(now.getMinutes()).padStart(2, '0');
+          const currentTimeStr = `${currentHours}:${currentMinutes}`;
+          if (lastAlertTimeRef.current === currentTimeStr) return;
+          const matchingReminder = currentUser.reminders?.find(r => r.time === currentTimeStr && r.isEnabled);
+          if (matchingReminder) {
+              setActiveAlert({ title: matchingReminder.title, time: matchingReminder.time });
+              lastAlertTimeRef.current = currentTimeStr;
+              playSound('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3', 0.5);
+          }
+      }, 30000);
+      return () => clearInterval(checkInterval);
+  }, [currentUser]);
 
   const toggleLanguage = () => {
     setLang(prev => prev === 'en' ? 'ar' : 'en');
@@ -45,74 +186,260 @@ function App() {
 
   const handleThemeChange = (theme: Theme) => {
     setCurrentTheme(theme);
-    // applyTheme is called inside handleThemeChange via ThemeModal helper, but doing it here ensures state consistency
-    applyTheme(theme);
+    applyTheme(theme, true);
+  };
+
+  const toggleLowPowerMode = () => {
+    setIsLowPowerMode((prev: boolean) => !prev);
   };
 
   const userActions = currentUser?.actions || [];
   const recentActions = [...userActions].reverse().slice(0, 5);
-  
   const chartData = userActions.length > 0 
     ? userActions.map((a, i) => ({ name: `Log ${i+1}`, value: a.points }))
     : [{ name: 'No Data', value: 100 }];
 
-
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nameInput.trim()) return;
-
-    const existingUser = users.find(u => u.name.toLowerCase() === nameInput.toLowerCase());
-    if (existingUser) {
-      setCurrentUser(existingUser);
-    } else {
-      const newUser: User = {
-        id: Date.now().toString(),
-        name: nameInput,
-        totalPoints: 0,
-        actions: [],
-        currentStreak: 0,
-        lastLogDate: '',
-        hasCompletedTutorial: false
-      };
-      
-      const updatedUsers = [...users, newUser];
-      setUsers(updatedUsers);
-      setCurrentUser(newUser);
-      saveStoredUsers(updatedUsers);
+    if (!passwordInput.trim()) {
+        alert(t.passwordRequired);
+        return;
     }
+    
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nameInput.trim(), pin: passwordInput.trim() })
+      });
+
+      if (response.ok) {
+        const { token, ...user } = await response.json();
+        if (token) localStorage.setItem('token', token);
+        setCurrentUser(user);
+        setDisplayPoints(user.totalPoints);
+        
+        // After login, if admin/mod, load all users
+        if (user.role === 'admin' || user.role === 'moderator') {
+          const allUsers = await getStoredUsers();
+          setUsers(allUsers);
+        } else {
+          const leaderboardData = await getLeaderboard();
+          setUsers(leaderboardData);
+        }
+      } else {
+        const err = await response.json();
+        alert(err.error || t.accountNotFound);
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      alert('Login failed. Please try again.');
+    }
+    
     setNameInput('');
+    setPasswordInput('');
   };
 
-  const handleLogout = () => {
+  const handleCreateUser = (name: string, pin: string, section: string, role: 'student' | 'moderator' | 'admin' | 'beta') => {
+    const newUser: User = {
+      id: Date.now().toString(),
+      name,
+      pin,
+      section,
+      role,
+      totalPoints: 0,
+      actions: [],
+      currentStreak: 0,
+      lastLogDate: '',
+      reminders: [],
+      createdBy: currentUser?.id
+    };
+    const updatedUsers = [...users, newUser];
+    setUsers(updatedUsers);
+    saveStoredUsers(updatedUsers);
+    return newUser;
+  };
+
+  const handleDeleteUser = (userId: string) => {
+    const updatedUsers = users.filter(u => u.id !== userId);
+    setUsers(updatedUsers);
+    saveStoredUsers(updatedUsers);
+  };
+
+  const handleUpdateUser = (updatedUser: User) => {
+      setCurrentUser(updatedUser);
+      saveUserUpdate(updatedUser);
+      setUsers(prevUsers => {
+          return prevUsers.map(u => u.id === updatedUser.id ? updatedUser : u);
+      });
+  };
+
+  const handleUpdateUsers = (updatedUsers: User[]) => {
+      setUsers(updatedUsers);
+      saveStoredUsers(updatedUsers);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+    localStorage.removeItem('token');
     setCurrentUser(null);
+    setOriginalAdminUser(null);
     setCurrentView(AppView.HOME);
   };
 
   const handleTutorialComplete = () => {
     if (!currentUser) return;
-
     const updatedUser = { ...currentUser, hasCompletedTutorial: true };
     const updatedUsersList = users.map(u => u.id === currentUser.id ? updatedUser : u);
-    
     setCurrentUser(updatedUser);
     setUsers(updatedUsersList);
     saveStoredUsers(updatedUsersList);
   };
 
-  const handlePointsAwarded = (points: number, description: string, comment: string, category: string) => {
+  const handleModTutorialComplete = () => {
     if (!currentUser) return;
+    const updatedUser = { ...currentUser, hasCompletedModTutorial: true };
+    const updatedUsersList = users.map(u => u.id === currentUser.id ? updatedUser : u);
+    setCurrentUser(updatedUser);
+    setUsers(updatedUsersList);
+    saveStoredUsers(updatedUsersList);
+  };
 
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+  const handleAddReminder = (title: string, time: string) => {
+      if (!currentUser) return;
+      const newReminder: Reminder = {
+          id: Date.now().toString(),
+          title,
+          time,
+          isEnabled: true
+      };
+      const updatedUser = { ...currentUser, reminders: [...(currentUser.reminders || []), newReminder] };
+      const updatedUsers = users.map(u => u.id === currentUser.id ? updatedUser : u);
+      setCurrentUser(updatedUser);
+      setUsers(updatedUsers);
+      saveStoredUsers(updatedUsers);
+  };
+
+  const handleDeleteReminder = (id: string) => {
+      if (!currentUser) return;
+      const updatedUser = { 
+          ...currentUser, 
+          reminders: (currentUser.reminders || []).filter(r => r.id !== id) 
+      };
+      const updatedUsers = users.map(u => u.id === currentUser.id ? updatedUser : u);
+      setCurrentUser(updatedUser);
+      setUsers(updatedUsers);
+      saveStoredUsers(updatedUsers);
+  };
+
+  const handleActionRejected = () => {
+    if (!currentUser) return;
     
+    // Increment rejection count
+    const newRejectionCount = (currentUser.rejectionCount || 0) + 1;
+    let newCheatingFlags = currentUser.cheatingFlags || 0;
+    let newDailyLimit = currentUser.dailyLimit || 25;
+    let pointsDeduction = 0;
+    
+    // Check for Flags (Every 3 rejections = 1 Flag)
+    if (newRejectionCount % 3 === 0) {
+        newCheatingFlags += 1;
+        
+        // Apply Penalties based on Flag Level
+        if (newCheatingFlags === 1) {
+            // First Flag: Warning (Handled by UI notification mostly, but we can log it)
+            alert(t.warningTitle + ": Suspicious activity detected. Future violations will result in point deductions.");
+        } else if (newCheatingFlags === 2) {
+            // Second Flag: -10 Points
+            pointsDeduction = 10;
+            alert(t.warningTitle + ": 2nd Violation. 10 Points deducted.");
+        } else if (newCheatingFlags >= 3) {
+            // Third Flag: Reduce Daily Limit
+            newDailyLimit = 22;
+            alert(t.warningTitle + ": Critical Violation. Daily limit reduced to 22.");
+        }
+    }
+
+    const lostStreak = currentUser.currentStreak;
+    // Reset streak if it was active (existing logic)
+    const newStreak = 0;
+
+    const updatedUser: User = {
+        ...currentUser,
+        currentStreak: newStreak,
+        rejectionCount: newRejectionCount,
+        cheatingFlags: newCheatingFlags,
+        dailyLimit: newDailyLimit,
+        totalPoints: Math.max(0, currentUser.totalPoints - pointsDeduction)
+    };
+
+    const updatedUsersList = users.map(u => u.id === currentUser.id ? updatedUser : u);
+    setCurrentUser(updatedUser);
+    setUsers(updatedUsersList);
+    saveStoredUsers(updatedUsersList);
+    
+    if (lostStreak > 0) {
+        setStreakData({ show: true, val: lostStreak, type: 'lost' });
+    }
+  };
+
+  const handleActionPendingReview = (proposedPoints: number, description: string, comment: string, category: string, confidenceScore: number, videoData: string, mimeType: string) => {
+    if (!currentUser) return;
+    
+    // Find a random moderator
+    const moderators = users.filter(u => u.role === 'moderator');
+    let assignedTo = '';
+    if (moderators.length > 0) {
+        const randomMod = moderators[Math.floor(Math.random() * moderators.length)];
+        assignedTo = randomMod.id;
+    } else {
+        // Fallback to admin if no moderators
+        const admins = users.filter(u => u.role === 'admin');
+        if (admins.length > 0) {
+            assignedTo = admins[0].id;
+        }
+    }
+
+    const newAction: EcoAction = {
+      id: Date.now().toString(),
+      description,
+      points: 0, // 0 until approved
+      proposedPoints,
+      timestamp: Date.now(),
+      aiComment: comment,
+      confidenceScore,
+      status: 'pending_review',
+      assignedTo,
+      videoData,
+      mimeType
+    };
+
+    const updatedUser: User = {
+      ...currentUser,
+      actions: [...currentUser.actions, newAction]
+    };
+    const updatedUsersList = users.map(u => u.id === currentUser.id ? updatedUser : u);
+    setCurrentUser(updatedUser);
+    setUsers(updatedUsersList);
+    saveStoredUsers(updatedUsersList);
+    
+    alert(`Action flagged for review (Confidence: ${confidenceScore}%). Sent to moderator.`);
+  };
+
+  const handlePointsAwarded = (points: number, description: string, comment: string, category: string, confidenceScore?: number) => {
+    if (!currentUser) return;
+    const todayStr = getLogicalDateStr();
     let newStreak = currentUser.currentStreak;
     let streakType: 'started' | 'continued' | null = null;
     let shouldShowAnimation = false;
 
     if (currentUser.lastLogDate !== todayStr) {
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        const yesterdayStr = getYesterdayLogicalDateStr();
 
         if (currentUser.lastLogDate === yesterdayStr) {
             newStreak += 1;
@@ -130,7 +457,9 @@ function App() {
       description,
       points,
       timestamp: Date.now(),
-      aiComment: comment
+      aiComment: comment,
+      confidenceScore,
+      status: 'approved'
     };
 
     const updatedUser: User = {
@@ -140,306 +469,629 @@ function App() {
       currentStreak: newStreak,
       lastLogDate: todayStr
     };
-
     const updatedUsersList = users.map(u => u.id === currentUser.id ? updatedUser : u);
-    
     setCurrentUser(updatedUser);
     setUsers(updatedUsersList);
     saveStoredUsers(updatedUsersList);
-    
     if (shouldShowAnimation && streakType) {
         setStreakData({ show: true, val: newStreak, type: streakType });
     }
   };
 
+  const handleApproveAction = (userId: string, actionId: string) => {
+    const updatedUsersList = users.map(u => {
+      if (u.id === userId) {
+        const actionIndex = u.actions.findIndex(a => a.id === actionId);
+        if (actionIndex > -1) {
+          const action = u.actions[actionIndex];
+          const updatedAction = { ...action, status: 'approved' as const, points: action.proposedPoints || 0 };
+          const updatedActions = [...u.actions];
+          updatedActions[actionIndex] = updatedAction;
+          return { ...u, actions: updatedActions, totalPoints: u.totalPoints + (action.proposedPoints || 0) };
+        }
+      }
+      return u;
+    });
+    setUsers(updatedUsersList);
+    saveStoredUsers(updatedUsersList);
+    alert('Action approved.');
+  };
+
+  const handleRejectAction = (userId: string, actionId: string) => {
+    const updatedUsersList = users.map(u => {
+      if (u.id === userId) {
+        const actionIndex = u.actions.findIndex(a => a.id === actionId);
+        if (actionIndex > -1) {
+          const updatedAction = { ...u.actions[actionIndex], status: 'rejected' as const };
+          const updatedActions = [...u.actions];
+          updatedActions[actionIndex] = updatedAction;
+          return { ...u, actions: updatedActions };
+        }
+      }
+      return u;
+    });
+    setUsers(updatedUsersList);
+    saveStoredUsers(updatedUsersList);
+    alert('Action rejected.');
+  };
+
+  const handleReassignModerator = (userId: string, actionId: string) => {
+    const moderators = users.filter(u => u.role === 'moderator' && u.id !== currentUser?.id);
+    if (moderators.length === 0) {
+      alert('No other moderators available.');
+      return;
+    }
+    const randomMod = moderators[Math.floor(Math.random() * moderators.length)];
+    
+    const updatedUsersList = users.map(u => {
+      if (u.id === userId) {
+        const actionIndex = u.actions.findIndex(a => a.id === actionId);
+        if (actionIndex > -1) {
+          const updatedAction = { ...u.actions[actionIndex], assignedTo: randomMod.id };
+          const updatedActions = [...u.actions];
+          updatedActions[actionIndex] = updatedAction;
+          return { ...u, actions: updatedActions };
+        }
+      }
+      return u;
+    });
+    setUsers(updatedUsersList);
+    saveStoredUsers(updatedUsersList);
+    alert(`Reassigned to moderator: ${randomMod.name}`);
+  };
+
+  const handleSendToAdmin = (userId: string, actionId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    
+    let adminName = 'Wadeea'; // Default boys admin
+    if (user.section && user.section.toLowerCase().includes('g')) {
+      adminName = 'Eshel'; // Girls admin if section has 'g' or similar logic?
+      // Wait, the prompt says "Eshel is for the girls admin and Wadeea is the boys admin"
+      // We don't have a strict gender field, but we can check if the section is a girls section or just find the admin by name.
+    }
+    // Let's just find admin by name. If section contains 'g' -> Eshel, else Wadeea.
+    // Or we can just look up Eshel and Wadeea directly.
+    const isGirl = user.section?.toLowerCase().includes('g');
+    const targetAdminName = isGirl ? 'Eshel' : 'Wadeea';
+    
+    const admin = users.find(u => u.role === 'admin' && u.name.toLowerCase() === targetAdminName.toLowerCase());
+    
+    // Fallback to any admin if specific one not found
+    const fallbackAdmin = users.find(u => u.role === 'admin');
+    const assignedAdmin = admin || fallbackAdmin;
+
+    if (!assignedAdmin) {
+      alert('No admin found.');
+      return;
+    }
+
+    const updatedUsersList = users.map(u => {
+      if (u.id === userId) {
+        const actionIndex = u.actions.findIndex(a => a.id === actionId);
+        if (actionIndex > -1) {
+          const updatedAction = { ...u.actions[actionIndex], assignedTo: assignedAdmin.id };
+          const updatedActions = [...u.actions];
+          updatedActions[actionIndex] = updatedAction;
+          return { ...u, actions: updatedActions };
+        }
+      }
+      return u;
+    });
+    setUsers(updatedUsersList);
+    saveStoredUsers(updatedUsersList);
+    alert(`Sent to admin: ${assignedAdmin.name}`);
+  };
+
+  const handleForgotPinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (forgotPinStep === 1) {
+      const user = users.find(u => u.name.toLowerCase() === resetUsername.trim().toLowerCase());
+      if (user) {
+        setResetUser(user);
+        setForgotPinStep(2);
+      } else {
+        alert(lang === 'ar' ? 'المستخدم غير موجود' : 'User not found');
+      }
+    } else if (forgotPinStep === 2) {
+      if (resetUser && newPinInput.trim()) {
+        const updatedUser = { 
+          ...resetUser, 
+          pendingPin: newPinInput.trim(),
+          pinResetStatus: 'pending' as const
+        };
+        const updatedUsersList = users.map(u => u.id === resetUser.id ? updatedUser : u);
+        setUsers(updatedUsersList);
+        saveStoredUsers(updatedUsersList);
+        alert(lang === 'ar' ? 'تم إرسال طلب إعادة تعيين رمز PIN إلى المشرف' : 'PIN reset request sent to moderator');
+        setIsForgotPin(false);
+        setForgotPinStep(1);
+        setResetUsername('');
+        setNewPinInput('');
+        setResetUser(null);
+      }
+    }
+  };
+
+  const renderBootScreen = () => {
+      return (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] bg-eco-950 flex flex-col items-center justify-center overflow-hidden"
+          >
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+                className="flex flex-col items-center gap-6"
+              >
+                  <div className="w-20 h-20 bg-eco-500 rounded-2xl flex items-center justify-center shadow-lg shadow-eco-500/20">
+                      <Leaf className="h-10 w-10 text-white" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">EcoRank</h2>
+                  <Loader2 className="h-5 w-5 text-eco-500 animate-spin" />
+              </motion.div>
+          </motion.div>
+      );
+  };
+
   const renderLogin = () => (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-md animate-slide-up">
-        {/* Language Toggle Login */}
+    <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        className="w-full h-full flex items-center justify-center p-4 relative z-10 overflow-y-auto"
+    >
+      <div className="w-full max-w-md my-auto">
         <div className="absolute top-4 right-4 z-50">
-            <button 
-                onClick={toggleLanguage}
-                className="flex items-center gap-2 px-3 py-1 bg-eco-900/40 border border-eco-500/30 text-eco-400 rounded-md hover:bg-eco-500/20 transition-all text-xs font-mono"
-            >
+            <button onClick={toggleLanguage} className="flex items-center gap-2 px-3 py-1 bg-eco-900/40 border border-eco-500/30 text-eco-400 rounded-full hover:bg-eco-500/20 transition-all text-xs font-medium">
                 <Globe className="h-4 w-4" />
                 {lang === 'en' ? 'العربية' : 'English'}
             </button>
         </div>
-
-        <div className="bg-[#0a0a0a] border border-eco-500/30 rounded-lg overflow-hidden shadow-[0_0_30px_rgba(16,185,129,0.1)]">
-            <div className="bg-eco-900/20 border-b border-eco-500/30 p-2 flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-red-500/50"></div>
-                <div className="w-3 h-3 rounded-full bg-yellow-500/50"></div>
-                <div className="w-3 h-3 rounded-full bg-green-500/50"></div>
-            </div>
-
-            <div className="p-8">
+        <div className="bg-[#0a0a0a]/80 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl overflow-hidden">
+            <div className="p-8 md:p-10">
                 <div className="text-center mb-10">
-                    <div className="inline-block p-4 border border-eco-500/20 rounded-full mb-4 bg-eco-500/5">
-                        <Terminal className="h-12 w-12 text-eco-400" />
+                    <div className="inline-flex items-center justify-center w-16 h-16 bg-eco-500/10 rounded-2xl mb-6">
+                        <Leaf className="h-8 w-8 text-eco-500" />
                     </div>
-                    <h1 className="text-3xl font-bold text-white font-mono mb-1 tracking-tight">{t.loginTitle} <span className="text-eco-500 text-sm align-top">BETA</span></h1>
-                    <p className="text-eco-500/60 text-xs font-mono uppercase tracking-widest">{t.loginSubtitle}</p>
+                    <h1 className="text-3xl font-bold text-white mb-2 tracking-tight">{t.loginTitle}</h1>
+                    <p className="text-gray-400 text-sm">{t.loginSubtitle}</p>
                 </div>
-
-                <form onSubmit={handleLogin} className="space-y-6">
-                    <div className="space-y-1">
+                {isForgotPin ? (
+                  <form onSubmit={handleForgotPinSubmit} className="space-y-6">
+                    <div className="space-y-4">
+                      {forgotPinStep === 1 && (
                         <div className="relative group">
-                            <input
-                                type="text"
-                                value={nameInput}
-                                onChange={(e) => setNameInput(e.target.value)}
-                                className="w-full px-4 py-3 bg-black border border-eco-800 text-eco-100 font-mono placeholder-eco-800 focus:outline-none focus:border-eco-500 focus:ring-1 focus:ring-eco-500 transition-all text-center"
-                                placeholder={t.enterUsername}
-                            />
+                          <input type="text" value={resetUsername} onChange={(e) => setResetUsername(e.target.value)} className="w-full px-4 py-3.5 bg-white/5 border border-white/10 text-white text-lg placeholder-gray-500 focus:outline-none focus:border-eco-500 focus:ring-1 focus:ring-eco-500 transition-all rounded-xl text-center" placeholder={lang === 'ar' ? 'أدخل اسم المستخدم' : 'Enter Username'} />
                         </div>
+                      )}
+                      {forgotPinStep === 2 && (
+                        <div className="relative group">
+                          <input type="password" value={newPinInput} onChange={(e) => setNewPinInput(e.target.value)} className="w-full px-4 py-3.5 bg-white/5 border border-white/10 text-white text-lg placeholder-gray-500 focus:outline-none focus:border-eco-500 focus:ring-1 focus:ring-eco-500 transition-all rounded-xl text-center" placeholder={lang === 'ar' ? 'رمز PIN الجديد' : 'New PIN'} />
+                        </div>
+                      )}
                     </div>
-                    <button
-                        type="submit"
-                        className="w-full py-3 bg-eco-600 hover:bg-eco-500 text-black font-bold font-mono uppercase tracking-wider transition-all hover:shadow-[0_0_15px_rgba(16,185,129,0.4)]"
-                    >
-                        {t.startSession}
-                    </button>
-                </form>
-
-                <div className="mt-8 pt-4 border-t border-eco-900/50 text-center">
-                    <p className="text-[9px] text-eco-600 font-mono">
-                         {t.systemStatus}<br/>
-                         [WADEEA, SHARIF, ADAM, MOHAMMED - 10B1]
-                    </p>
+                    <div className="flex flex-col gap-3">
+                      <button type="submit" className="w-full py-3.5 bg-eco-600 hover:bg-eco-500 text-white font-bold text-lg tracking-wide transition-all hover:shadow-lg hover:shadow-eco-500/20 rounded-xl">
+                        {forgotPinStep === 1 ? (lang === 'ar' ? 'التالي' : 'Next') : (lang === 'ar' ? 'إرسال الطلب' : 'Submit Request')}
+                      </button>
+                      <button type="button" onClick={() => { setIsForgotPin(false); setForgotPinStep(1); setResetUsername(''); setNewPinInput(''); setResetUser(null); }} className="w-full py-3.5 bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-lg tracking-wide transition-all rounded-xl">
+                        {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <form onSubmit={handleLogin} className="space-y-6">
+                      <div className="space-y-4">
+                          <div className="relative group">
+                              <input type="text" value={nameInput} onChange={(e) => setNameInput(e.target.value)} className="w-full px-4 py-3.5 bg-white/5 border border-white/10 text-white text-lg placeholder-gray-500 focus:outline-none focus:border-eco-500 focus:ring-1 focus:ring-eco-500 transition-all rounded-xl text-center" placeholder={t.enterUsername} />
+                          </div>
+                          <div className="relative group">
+                              <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} className="w-full px-4 py-3.5 bg-white/5 border border-white/10 text-white text-lg placeholder-gray-500 focus:outline-none focus:border-eco-500 focus:ring-1 focus:ring-eco-500 transition-all rounded-xl text-center" placeholder={t.enterPin} />
+                          </div>
+                          <div className="relative group">
+                              <select 
+                                  value={sectionInput} 
+                                  onChange={(e) => setSectionInput(e.target.value)}
+                                  className="w-full px-4 py-3.5 bg-white/5 border border-white/10 text-white text-lg focus:outline-none focus:border-eco-500 focus:ring-1 focus:ring-eco-500 transition-all rounded-xl text-center appearance-none cursor-pointer"
+                              >
+                                  <option value="9b1" className="bg-gray-900">9B1 (Standard)</option>
+                                  <option value="9b2" className="bg-gray-900">9B2 (Standard)</option>
+                                  <option value="9g1" className="bg-gray-900">9G1 (Girls)</option>
+                                  <option value="9g2" className="bg-gray-900">9G2 (Girls)</option>
+                                  <option value="10b1" className="bg-gray-900">10B1 (Standard)</option>
+                                  <option value="10b2" className="bg-gray-900">10B2 (Standard)</option>
+                                  <option value="10g1" className="bg-gray-900">10G1 (Girls)</option>
+                                  <option value="11b1" className="bg-gray-900">11B1 (Clean Zone)</option>
+                                  <option value="11b2" className="bg-gray-900">11B2 (Clean Zone)</option>
+                                  <option value="11g1" className="bg-gray-900">11G1 (Girls)</option>
+                                  <option value="12b1" className="bg-gray-900">12B1 (Standard)</option>
+                                  <option value="12b2" className="bg-gray-900">12B2 (Standard)</option>
+                                  <option value="12g1" className="bg-gray-900">12G1 (Girls)</option>
+                                  <option value="12g2" className="bg-gray-900">12G2 (Girls)</option>
+                                </select>
+                              <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">
+                                  <ArrowRight className="h-4 w-4 rotate-90" />
+                              </div>
+                          </div>
+                      </div>
+                      <div className="flex flex-col gap-3">
+                        <button type="submit" className="w-full py-3.5 bg-eco-600 hover:bg-eco-500 text-white font-bold text-lg tracking-wide transition-all hover:shadow-lg hover:shadow-eco-500/20 rounded-xl">{t.startSession}</button>
+                        <button type="button" onClick={() => setHasSeenOnboarding(false)} className="w-full py-3.5 bg-white/5 hover:bg-white/10 text-white font-bold text-lg tracking-wide transition-all rounded-xl">
+                          {lang === 'ar' ? 'عرض الدليل التعليمي' : 'View Tutorial'}
+                        </button>
+                        <button type="button" onClick={() => setIsForgotPin(true)} className="text-sm text-gray-400 hover:text-eco-400 transition-colors">
+                          {lang === 'ar' ? 'نسيت رمز PIN؟' : 'Forgot PIN?'}
+                        </button>
+                      </div>
+                  </form>
+                )}
+                <div className="mt-8 pt-6 border-t border-white/5 text-center">
+                    <p className="text-xs text-gray-500 font-medium">{t.systemStatus} • v1.0.0</p>
+                    <p className="text-[10px] text-gray-600 mt-2">{(t as any).copyright}</p>
                 </div>
             </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 
   const renderDashboard = () => {
     if (!currentUser) return null;
-
+    const isEshel = currentUser.name.toLowerCase() === 'eshel';
+    
     return (
-      <div className="space-y-6 animate-slide-up pb-20 md:pb-0 font-mono">
-        {/* Technical Header */}
-        <div className="border border-eco-500/30 bg-black/40 p-6 relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-2 opacity-20">
-             <Code className="h-32 w-32 text-eco-500" />
-          </div>
-          
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        className="space-y-6 relative z-10"
+      >
+        <div className={`border ${isEshel ? 'border-pink-500/20 bg-transparent' : 'border-white/10 bg-transparent'} p-8 relative overflow-hidden rounded-3xl`}>
           <div className="relative z-10">
-            <div className="flex justify-between items-start mb-6">
+            <div className="flex justify-between items-start mb-8">
                 <div>
-                    <div className="text-[10px] text-eco-500 uppercase tracking-widest mb-1">{t.welcome}</div>
-                    <h2 className="text-3xl font-bold text-white uppercase">{currentUser.name}</h2>
+                    <div className={`text-sm font-medium ${isEshel ? 'text-pink-400' : 'text-eco-400'} mb-1 flex items-center gap-2`}>Welcome back</div>
+                    <h2 className="text-4xl font-bold text-white tracking-tight">{currentUser.name}</h2>
+                    <div className={`text-sm ${isEshel ? 'text-pink-300/60' : 'text-gray-400'} mt-1`}>Section {currentUser.section || 'N/A'}</div>
                 </div>
                 <div className="text-right">
-                    <div className="inline-flex items-center gap-1 px-2 py-1 bg-eco-500/10 border border-eco-500/20 rounded text-[9px] text-eco-400 uppercase tracking-widest">
-                        <span className="w-1.5 h-1.5 bg-eco-500 rounded-full animate-pulse"></span>
+                    <div className={`inline-flex items-center gap-2 px-3 py-1.5 ${isEshel ? 'bg-pink-500/10 text-pink-400' : 'bg-eco-500/10 text-eco-400'} rounded-full text-xs font-medium`}>
+                        <span className={`w-2 h-2 ${isEshel ? 'bg-pink-500' : 'bg-eco-500'} rounded-full animate-pulse`}></span>
                         {t.live}
                     </div>
                 </div>
             </div>
-            
-            <div className="grid grid-cols-3 gap-4">
-              <div className="border border-eco-800 bg-black/50 p-3 hover:border-eco-500/50 transition-colors">
-                <div className="text-[9px] text-eco-500 uppercase tracking-wider mb-1">{t.score}</div>
-                <div className="text-2xl font-bold text-white">{currentUser.totalPoints}</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className={`bg-transparent p-4 rounded-2xl border border-white/5`}>
+                <div className={`text-xs font-medium ${isEshel ? 'text-pink-400' : 'text-gray-400'} mb-1`}>{t.score}</div>
+                <div className="text-3xl font-bold text-white tabular-nums">{displayPoints}</div>
               </div>
-              <div className="border border-eco-800 bg-black/50 p-3 hover:border-eco-500/50 transition-colors">
-                <div className="text-[9px] text-eco-500 uppercase tracking-wider mb-1">{t.logs}</div>
-                <div className="text-2xl font-bold text-white">{currentUser.actions.length}</div>
+              <div className={`bg-transparent p-4 rounded-2xl border border-white/5`}>
+                <div className={`text-xs font-medium ${isEshel ? 'text-pink-400' : 'text-gray-400'} mb-1`}>{t.logs}</div>
+                <div className="text-3xl font-bold text-white">{currentUser.actions.length}</div>
               </div>
-              <div className="border border-eco-800 bg-black/50 p-3 hover:border-eco-500/50 transition-colors">
-                <div className="text-[9px] text-orange-400 uppercase tracking-wider mb-1">{t.streak}</div>
-                <div className="text-2xl font-bold text-white flex gap-1">
-                    {currentUser.currentStreak} <span className="text-xs self-end mb-1 text-eco-600">{t.days}</span>
-                </div>
+              <div className={`bg-transparent p-4 rounded-2xl border border-white/5`}>
+                <div className="text-xs font-medium text-orange-400 mb-1">{t.streak}</div>
+                <div className="text-3xl font-bold text-white flex items-baseline gap-1">{currentUser.currentStreak} <span className="text-sm font-normal text-gray-500">{t.days}</span></div>
               </div>
             </div>
           </div>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Recent Logs */}
-          <div className="border border-eco-500/20 bg-black/40 p-4">
-            <h3 className="text-xs font-bold text-eco-400 uppercase tracking-widest mb-4 border-b border-eco-800 pb-2">
-                >> {t.recentActivity}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="border border-white/10 bg-transparent p-6 rounded-3xl">
+            <h3 className="text-sm font-bold text-white mb-6 flex items-center gap-2">
+                <div className="w-1 h-4 bg-eco-500 rounded-full"></div>
+                {t.recentActivity}
             </h3>
             {recentActions.length === 0 ? (
-              <div className="text-center py-8 text-eco-700 text-xs">
-                [{t.noData}]
-              </div>
+              <div className="text-center py-12 text-gray-500 text-sm">{t.noData}</div>
             ) : (
-              <div className="space-y-2">
-                {recentActions.map((action) => (
-                  <div key={action.id} className="flex justify-between items-start text-xs p-2 hover:bg-eco-500/5 border-l-2 border-transparent hover:border-eco-500 transition-all">
+              <div className="space-y-3">
+                {recentActions.map((action, idx) => (
+                  <motion.div 
+                    key={action.id} 
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.1 }}
+                    className="flex justify-between items-center text-sm p-3 hover:bg-white/5 transition-colors rounded-xl group"
+                  >
                     <div className="flex-1">
-                      <span className="text-eco-300">[{new Date(action.timestamp).toLocaleTimeString()}]</span>
-                      <span className="text-gray-400 mx-2">{action.description}</span>
+                        <div className="text-gray-200 font-medium group-hover:text-white transition-colors">{action.description}</div>
+                        <div className="text-xs text-gray-500 mt-0.5">{new Date(action.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
-                    <span className="font-bold text-eco-400">+{action.points}</span>
-                  </div>
+                    <span className="font-bold text-eco-400 bg-eco-500/10 px-2 py-1 rounded-lg">+{action.points}</span>
+                  </motion.div>
                 ))}
               </div>
             )}
           </div>
-
-          {/* Data Viz */}
-          <div className="border border-eco-500/20 bg-black/40 p-4 flex flex-col">
-             <h3 className="text-xs font-bold text-eco-400 uppercase tracking-widest mb-4 border-b border-eco-800 pb-2">
-                >> {t.impactAnalysis}
+          <div className="border border-white/10 bg-transparent p-6 flex flex-col rounded-3xl">
+             <h3 className="text-sm font-bold text-white mb-6 flex items-center gap-2">
+                <div className="w-1 h-4 bg-eco-500 rounded-full"></div>
+                {t.impactAnalysis}
              </h3>
-             <div className="h-[150px] w-full mt-auto">
+             <div className="h-[200px] w-full mt-auto">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie
-                      data={chartData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={40}
-                      outerRadius={60}
-                      paddingAngle={2}
-                      dataKey="value"
-                      stroke="none"
-                    >
-                      {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
+                    <Pie data={chartData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" stroke="none">
+                      {chartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />))}
                     </Pie>
                     <RechartsTooltip 
-                        contentStyle={{ backgroundColor: '#000', borderColor: '#064e3b', fontSize: '10px', fontFamily: 'monospace' }}
-                        itemStyle={{ color: '#fff' }}
+                        contentStyle={{ backgroundColor: '#1a1a1a', borderColor: '#333', borderRadius: '12px', fontSize: '12px', boxShadow: '0 10px 30px -10px rgba(0,0,0,0.5)' }} 
+                        itemStyle={{ color: '#fff' }} 
+                        cursor={false}
                     />
                   </PieChart>
                 </ResponsiveContainer>
              </div>
           </div>
         </div>
-
-        <button 
-            onClick={() => setCurrentView(AppView.LEADERBOARD)}
-            className="w-full bg-eco-900/20 border border-eco-500/30 text-eco-400 py-3 text-xs font-bold uppercase tracking-widest hover:bg-eco-500/10 transition-colors flex items-center justify-center gap-2"
-        >
-            {t.viewRankings} 
-            {lang === 'en' ? <ArrowRight className="h-4 w-4" /> : <ArrowRight className="h-4 w-4 rotate-180" />}
-        </button>
-
-        <div className="mt-6 flex justify-center">
-            <a 
-                href="mailto:demon?subject=Feedback&body=Thx%20for%20the%20help%20;)"
-                className="group flex items-center gap-2 opacity-50 hover:opacity-100 transition-opacity"
-            >
-                <div className="p-1.5 rounded-md bg-eco-900/30 border border-eco-800 group-hover:border-eco-500/50">
-                    <Ghost className="h-3 w-3 text-eco-500" />
-                </div>
-                <span className="text-[10px] font-mono text-eco-600 group-hover:text-eco-400 uppercase tracking-widest">
-                    {t.sendFeedbackToDemon}
+        <div className="grid grid-cols-1 gap-4">
+            <button onClick={() => setCurrentView(AppView.LEADERBOARD)} className="w-full bg-transparent border border-white/10 text-white py-4 text-sm font-bold hover:bg-white/10 transition-all flex items-center justify-center gap-2 rounded-2xl group">
+                {t.viewRankings} 
+                <span className="bg-white/10 p-1 rounded-full group-hover:bg-white/20 transition-colors">
+                    {lang === 'en' ? <ArrowRight className="h-4 w-4" /> : <ArrowRight className="h-4 w-4 rotate-180" />}
                 </span>
-            </a>
+            </button>
         </div>
-      </div>
+      </motion.div>
     );
   };
 
+  if (isLoading) return renderBootScreen();
+
   return (
-    <div className="min-h-screen bg-[#050a0e] text-gray-100 relative" dir={lang === 'ar' ? 'rtl' : 'ltr'}>
-      {/* Beta Popup Warning */}
-      {showBetaPopup && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-fade-in">
-            <div className="max-w-sm w-full bg-[#0a0a0a] border border-yellow-500/50 shadow-[0_0_40px_rgba(234,179,8,0.15)] animate-slide-up relative overflow-hidden">
-                <div className="relative z-10 p-1">
-                    <div className="bg-yellow-900/20 border-b border-yellow-500/30 p-3 flex items-center justify-between">
-                        <span className="text-[10px] font-mono text-yellow-500 uppercase tracking-widest font-bold">>> {t.betaTitle}</span>
-                        <div className="flex items-center gap-2">
-                             <span className="relative flex h-2 w-2">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-yellow-500"></span>
-                            </span>
-                        </div>
-                    </div>
-                    
-                    <div className="p-6 text-center font-mono">
-                        <div className="flex justify-center mb-4">
-                            <div className="p-3 bg-yellow-500/10 rounded-full border border-yellow-500/20">
-                                <AlertTriangle className="h-8 w-8 text-yellow-500" />
-                            </div>
-                        </div>
-                        
-                        <div className="mb-6 space-y-3 text-xs md:text-sm text-gray-300 leading-relaxed">
-                            <p className="uppercase font-bold text-yellow-500">{t.betaDesc}</p>
-                            
-                            <div className="bg-yellow-500/10 border-l-2 border-yellow-500 p-3 my-4 mx-1 text-left">
-                                <p className="text-white font-bold tracking-wider text-base">{t.eligible}</p>
-                            </div>
-                        </div>
-                        
-                        <button
-                            onClick={() => setShowBetaPopup(false)}
-                            className="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-black font-bold uppercase tracking-wider transition-all"
-                        >
-                            {t.understand}
-                        </button>
-                    </div>
+    <MotionConfig reducedMotion={isLowPowerMode ? "always" : "never"}>
+      <div className={`min-h-screen bg-transparent text-gray-100 transition-colors duration-500 ${isLowPowerMode ? 'low-power-mode' : ''}`} dir={lang === 'ar' ? 'rtl' : 'ltr'}>
+        
+        <AnimatePresence>
+        </AnimatePresence>
+
+        {/* Parrot Theme Animation Layer */}
+        {currentTheme.id === 'parrot' && (
+            <div className="parrot-container">
+                {/* Parallax Background */}
+                <div className="jungle-leaves-bg"></div>
+                <div className="jungle-leaves"></div>
+                
+                {/* Foreground Branch */}
+                <div className="foreground-branch"></div>
+                
+                {/* Animals */}
+                <div className="pixel-snake-new"></div>
+                
+                <div className="pixel-spider-container">
+                    <div className="spider-thread"></div>
+                    <div className="pixel-spider"></div>
                 </div>
+
+                {/* Parrots */}
+                <div className="pixel-macaw macaw-1"></div>
             </div>
-        </div>
-      )}
+        )}
 
-      {!currentUser ? (
-        renderLogin()
-      ) : (
-        <div className="flex flex-col min-h-screen">
-            
-            {/* Tutorial Overlay for new users */}
-            {currentUser.hasCompletedTutorial === false && (
-                <TutorialOverlay onComplete={handleTutorialComplete} onChangeView={setCurrentView} lang={lang} />
-            )}
+        {/* Pixel Cat Theme Animation Layer */}
+        {(currentTheme.id === 'pixel-cat-gray' || currentTheme.id === 'pixel-cat-white') && (
+            <div className="pixel-cat-container" style={{ background: currentTheme.id === 'pixel-cat-white' ? 'radial-gradient(circle at center, #94a3b8 0%, #0f172a 100%)' : undefined }}>
+                <div className={`pixel-cat-figure ${currentTheme.id === 'pixel-cat-white' ? 'white-cat' : 'gray-cat'}`}></div>
+                <div className="pixel-yarn yarn-1"></div>
+                <div className="pixel-yarn yarn-2"></div>
+                <div className="pixel-yarn yarn-3"></div>
+                <div className="pixel-mouse mouse-1"></div>
+                <div className="pixel-mouse mouse-2"></div>
+                <div className="pixel-fish fish-1"></div>
+                <div className="pixel-fish fish-2"></div>
+            </div>
+        )}
 
-            {/* Desktop Navigation placement */}
-            {currentUser && (
-               <Navbar 
+        {/* Smiski Theme Animation Layer */}
+        {currentTheme.id === 'smiski' && (
+            <div className="smiski-container">
+                <div className="smiski-figure smiski-headphones"></div>
+                <div className="smiski-figure smiski-hula"></div>
+                <div className="smiski-figure smiski-laptop"></div>
+                <div className="smiski-figure smiski-skate"></div>
+                <div className="smiski-figure smiski-lotus hidden md:block"></div>
+            </div>
+        )}
+
+        {/* Custom Theme Animation Layer */}
+        {currentTheme.id.startsWith('custom-') && currentTheme.customImageUrl && (
+            <div className="fixed inset-0 pointer-events-none z-[-1] overflow-hidden" style={{ background: currentTheme.isAbstract ? `url(${currentTheme.customImageUrl}) center/cover no-repeat` : 'radial-gradient(circle at center, #1e293b 0%, #020617 100%)' }}>
+                {!currentTheme.isAbstract && (
+                    <div 
+                        className="absolute bottom-10 left-1/2 -translate-x-1/2 w-64 h-64 bg-contain bg-no-repeat bg-center"
+                        style={{ 
+                            backgroundImage: `url(${currentTheme.customImageUrl})`,
+                            imageRendering: 'pixelated',
+                            filter: 'drop-shadow(0 20px 20px rgba(0,0,0,0.5))',
+                            animation: currentTheme.customAnimation === 'float' ? 'custom-float 6s ease-in-out infinite' : 
+                                       currentTheme.customAnimation === 'bounce' ? 'custom-bounce 2s infinite' :
+                                       currentTheme.customAnimation === 'spin' ? 'custom-spin 4s linear infinite' :
+                                       currentTheme.customAnimation === 'pulse' ? 'custom-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' : 'none'
+                        }}
+                    ></div>
+                )}
+            </div>
+        )}
+
+        {!hasSeenOnboarding ? (
+          <AnimatePresence mode="wait">
+            <Onboarding 
+              onComplete={() => {
+                setHasSeenOnboarding(true);
+                localStorage.setItem('eco_onboarding_complete', 'true');
+              }} 
+              lang={lang} 
+              toggleLanguage={toggleLanguage} 
+            />
+          </AnimatePresence>
+        ) : !currentUser ? (
+          <AnimatePresence mode="wait">
+              {renderLogin()}
+          </AnimatePresence>
+        ) : (
+          <>
+              {currentUser.hasCompletedTutorial === false && (
+                  <TutorialOverlay onComplete={handleTutorialComplete} onChangeView={setCurrentView} lang={lang} />
+              )}
+
+              {currentView === AppView.MODERATION && !currentUser.hasCompletedModTutorial && (
+                  <ModTutorialOverlay onComplete={handleModTutorialComplete} lang={lang} />
+              )}
+
+              <Navbar 
                   currentView={currentView} 
                   onChangeView={setCurrentView} 
-                  currentUser={currentUser.name} 
+                  currentUser={currentUser} 
                   onLogout={handleLogout} 
                   lang={lang}
                   toggleLanguage={toggleLanguage}
                   onOpenThemes={() => setIsThemeModalOpen(true)}
-               />
-            )}
+                  isLowPowerMode={isLowPowerMode}
+                  toggleLowPowerMode={toggleLowPowerMode}
+              />
 
-          <div className="flex-1 flex flex-col overflow-hidden relative">
-            
-            {/* Main Content Area */}
-            <main className="flex-1 overflow-y-auto p-4 pt-20 md:pt-4 scrollbar-hide pb-24 md:pb-4">
-               <div className="max-w-7xl mx-auto w-full">
-                {currentView === AppView.HOME && renderDashboard()}
-                {currentView === AppView.LEADERBOARD && <Leaderboard users={users} currentUserId={currentUser.id} lang={lang} />}
-                {currentView === AppView.LOG_ACTION && <ActionLog onPointsAwarded={handlePointsAwarded} lang={lang} />}
-                {currentView === AppView.REWARDS && <Rewards lang={lang} />}
-               </div>
-            </main>
-          </div>
-        </div>
-      )}
-      
-      {/* Streak Overlay */}
-      {streakData.show && (
-          <StreakOverlay 
-            streak={streakData.val} 
-            type={streakData.type} 
-            onComplete={() => setStreakData(prev => ({ ...prev, show: false }))} 
-          />
-      )}
-      
-      {/* Theme Modal */}
-      <ThemeModal 
-        isOpen={isThemeModalOpen}
-        onClose={() => setIsThemeModalOpen(false)}
-        currentThemeId={currentTheme.id}
-        onThemeSelect={handleThemeChange}
-        lang={lang}
-      />
-    </div>
+              {originalAdminUser && (
+                  <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50">
+                      <button 
+                          onClick={() => {
+                              setCurrentUser(originalAdminUser);
+                              setDisplayPoints(originalAdminUser.totalPoints);
+                              setOriginalAdminUser(null);
+                              setCurrentView(AppView.HOME);
+                          }}
+                          className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-full shadow-lg font-bold flex items-center gap-2 border border-purple-400 transition-all"
+                      >
+                          <Shield className="w-4 h-4" />
+                          {lang === 'ar' ? 'العودة للمشرف' : 'Back to Admin'}
+                      </button>
+                  </div>
+              )}
+
+              {/* Website Layout Main Content Area */}
+              <main className="pt-24 pb-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto min-h-[calc(100vh-16rem)]">
+                  <AnimatePresence mode="wait">
+                      {currentView === AppView.HOME && (
+                          <motion.div key="home" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }}>
+                              {renderDashboard()}
+                          </motion.div>
+                      )}
+                      {currentView === AppView.LEADERBOARD && (
+                          <motion.div key="leaderboard" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }}>
+                              <Leaderboard users={users} currentUserId={currentUser.id} lang={lang} />
+                          </motion.div>
+                      )}
+                      {currentView === AppView.LOG_ACTION && (
+                          <motion.div key="log" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }}>
+                              <ActionLog 
+                                  onPointsAwarded={handlePointsAwarded} 
+                                  onActionPendingReview={handleActionPendingReview}
+                                  onActionRejected={handleActionRejected}
+                                  currentStreak={currentUser.currentStreak}
+                                  lang={lang} 
+                                  section={currentUser.section}
+                                  userName={currentUser.name}
+                                  isLowPowerMode={isLowPowerMode}
+                              />
+                          </motion.div>
+                      )}
+                      {currentView === AppView.REWARDS && (
+                          <motion.div key="rewards" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }}>
+                              <Rewards lang={lang} />
+                          </motion.div>
+                      )}
+                      {currentView === AppView.PROTOCOLS && (
+                          <motion.div key="protocols" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }}>
+                              <Reminders 
+                                  reminders={currentUser.reminders || []} 
+                                  onAdd={handleAddReminder} 
+                                  onDelete={handleDeleteReminder}
+                                  currentStreak={currentUser.currentStreak}
+                                  lastLogDate={currentUser.lastLogDate}
+                                  lang={lang} 
+                              />
+                          </motion.div>
+                      )}
+                      {currentView === AppView.PROFILE && currentUser && (
+                          <motion.div key="profile" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }}>
+                              <Profile 
+                                  currentUser={currentUser} 
+                                  users={users} 
+                                  onUpdateUser={handleUpdateUser} 
+                                  onUpdateUsers={handleUpdateUsers} 
+                                  onSwitchUser={(user) => {
+                                      if (currentUser.role === 'admin') {
+                                          setOriginalAdminUser(currentUser);
+                                      }
+                                      setCurrentUser(user);
+                                      setDisplayPoints(user.totalPoints);
+                                      setCurrentView(AppView.HOME);
+                                  }}
+                                  lang={lang} 
+                              />
+                          </motion.div>
+                      )}
+                      {currentView === AppView.MODERATION && (
+                          <motion.div key="moderation" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }}>
+                              <Moderation 
+                                  currentUser={currentUser}
+                                  users={users}
+                                  onApprove={handleApproveAction}
+                                  onReject={handleRejectAction}
+                                  onReassignModerator={handleReassignModerator}
+                                  onSendToAdmin={handleSendToAdmin}
+                              />
+                          </motion.div>
+                      )}
+                      {currentView === AppView.ABOUT && (
+                          <motion.div key="about" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }}>
+                              <About lang={lang} />
+                          </motion.div>
+                      )}
+                      {currentView === AppView.ANALYTICS && (
+                          <motion.div key="analytics" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }}>
+                              <Analytics user={currentUser} lang={lang} />
+                          </motion.div>
+                      )}
+                      {currentView === AppView.FAQ && (
+                          <motion.div key="faq" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.2 }}>
+                              <FAQ lang={lang} />
+                          </motion.div>
+                      )}
+                  </AnimatePresence>
+              </main>
+
+              {/* Website Footer */}
+              <footer className="py-12 border-t border-white/5 bg-black/20 mt-auto">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center gap-6">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-eco-500/10 p-2 rounded-xl">
+                      <Leaf className="h-5 w-5 text-eco-500" />
+                    </div>
+                    <span className="text-lg font-bold text-white tracking-tight">EcoRank</span>
+                  </div>
+                  <div className="text-gray-500 text-sm font-mono">
+                    © 2026 Student Sustainability Initiative
+                  </div>
+                  <div className="flex gap-6">
+                    <button onClick={() => setCurrentView(AppView.ABOUT)} className="text-gray-400 hover:text-white transition-colors text-sm font-medium">{t.navAbout}</button>
+                    <button onClick={() => setCurrentView(AppView.FAQ)} className="text-gray-400 hover:text-white transition-colors text-sm font-medium">{t.navFAQ}</button>
+                  </div>
+                </div>
+              </footer>
+          </>
+        )}
+        
+        {streakData.show && <StreakOverlay streak={streakData.val} type={streakData.type} onComplete={() => setStreakData(prev => ({ ...prev, show: false }))} lang={lang} />}
+        {activeAlert && <NotificationOverlay title={activeAlert.title} time={activeAlert.time} onDismiss={() => setActiveAlert(null)} lang={lang} />}
+        <ThemeModal isOpen={isThemeModalOpen} onClose={() => setIsThemeModalOpen(false)} currentThemeId={currentTheme.id} onThemeSelect={handleThemeChange} lang={lang} currentUser={currentUser} />
+      </div>
+    </MotionConfig>
   );
 }
 

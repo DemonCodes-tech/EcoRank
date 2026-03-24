@@ -1,21 +1,35 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { User, Language } from '../types';
-import { Medal, Crown, Flame, Users, TrendingUp } from 'lucide-react';
+import { Medal, Crown, Flame, Users, TrendingUp, Share2 } from 'lucide-react';
 import { translations } from '../services/translations';
+import AnimatedProfilePicture from './AnimatedProfilePicture';
 
 interface LeaderboardProps {
   users: User[];
   currentUserId: string;
   lang: Language;
+  themeId?: string;
 }
 
-const Leaderboard: React.FC<LeaderboardProps> = ({ users, currentUserId, lang }) => {
-  const sortedUsers = [...users].sort((a, b) => b.totalPoints - a.totalPoints);
+const Leaderboard: React.FC<LeaderboardProps> = ({ users, currentUserId, lang, themeId }) => {
+  const [sortBy, setSortBy] = useState<'points' | 'actions' | 'streak'>('points');
+
+  const sortedUsers = [...users]
+    .filter(u => u.name !== 'BT')
+    .sort((a, b) => {
+      if (sortBy === 'points') return b.totalPoints - a.totalPoints;
+      if (sortBy === 'actions') return b.actions.length - a.actions.length;
+      if (sortBy === 'streak') return b.currentStreak - a.currentStreak;
+      return 0;
+    });
+
   const t = translations[lang];
 
   // Track the previous points to trigger animation
   const currentUser = users.find(u => u.id === currentUserId);
   const currentPoints = currentUser ? currentUser.totalPoints : 0;
+  const currentRank = sortedUsers.findIndex(u => u.id === currentUserId) + 1;
   const prevPointsRef = useRef(currentPoints);
   const [highlightUser, setHighlightUser] = useState(false);
 
@@ -42,11 +56,72 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ users, currentUserId, lang })
     }
   };
 
+  const handleShare = () => {
+    const text = `I'm currently rank #${currentRank} on the EcoRank leaderboard with ${currentPoints} points! Check out my sustainability score! #EcoRank #Sustainability`;
+    const url = window.location.href;
+    
+    if (navigator.share) {
+      navigator.share({
+        title: 'My EcoRank Score',
+        text: text,
+        url: url,
+      }).catch(console.error);
+    } else {
+      // Fallback for browsers that don't support Web Share API
+      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+      window.open(twitterUrl, '_blank');
+    }
+  };
+
   return (
-    <div className="max-w-4xl mx-auto p-4 animate-slide-up pb-24 md:pb-4">
-      <div className="text-center mb-8">
+    <div className="max-w-4xl mx-auto p-4 animate-slide-up">
+      <div className="text-center mb-8 relative">
         <h2 className="text-3xl font-bold text-white mb-2 font-mono tracking-tight">{t.globalRankings}</h2>
         <p className="text-eco-300 text-sm font-mono uppercase tracking-widest">{t.topContributors}</p>
+        
+        {currentUser && (
+          <button 
+            onClick={handleShare}
+            className="absolute right-0 top-0 flex items-center gap-2 px-4 py-2 bg-eco-500/20 text-eco-400 border border-eco-500/50 rounded-lg hover:bg-eco-500 hover:text-black transition-all font-mono text-sm uppercase tracking-wider"
+          >
+            <Share2 className="h-4 w-4" />
+            Share
+          </button>
+        )}
+      </div>
+
+      {/* Sorting Controls */}
+      <div className="flex flex-wrap justify-center gap-2 mb-6">
+        <button 
+            onClick={() => setSortBy('points')}
+            className={`px-4 py-2 text-xs font-mono uppercase tracking-wider border rounded-lg transition-all ${
+                sortBy === 'points' 
+                    ? 'bg-eco-500 text-black border-eco-400 font-bold shadow-[0_0_15px_rgba(16,185,129,0.4)]' 
+                    : 'bg-black/40 text-eco-600 border-eco-800 hover:border-eco-500/50 hover:text-eco-400'
+            }`}
+        >
+            {t.totalPoints}
+        </button>
+        <button 
+            onClick={() => setSortBy('actions')}
+            className={`px-4 py-2 text-xs font-mono uppercase tracking-wider border rounded-lg transition-all ${
+                sortBy === 'actions' 
+                    ? 'bg-eco-500 text-black border-eco-400 font-bold shadow-[0_0_15px_rgba(16,185,129,0.4)]' 
+                    : 'bg-black/40 text-eco-600 border-eco-800 hover:border-eco-500/50 hover:text-eco-400'
+            }`}
+        >
+            {t.actions}
+        </button>
+        <button 
+            onClick={() => setSortBy('streak')}
+            className={`px-4 py-2 text-xs font-mono uppercase tracking-wider border rounded-lg transition-all ${
+                sortBy === 'streak' 
+                    ? 'bg-orange-500 text-black border-orange-400 font-bold shadow-[0_0_15px_rgba(249,115,22,0.4)]' 
+                    : 'bg-black/40 text-eco-600 border-eco-800 hover:border-orange-500/50 hover:text-orange-400'
+            }`}
+        >
+            {t.streak}
+        </button>
       </div>
 
       <div className="bg-eco-900/40 backdrop-blur-md rounded-xl border border-eco-800 overflow-hidden shadow-xl min-h-[300px] flex flex-col relative">
@@ -74,6 +149,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ users, currentUserId, lang })
                 {sortedUsers.map((user, index) => {
                     const isCurrentUser = user.id === currentUserId;
                     const isHighlighted = isCurrentUser && highlightUser;
+                    const isEshel = user.name.toLowerCase() === 'eshel';
                     
                     return (
                         <tr 
@@ -81,9 +157,11 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ users, currentUserId, lang })
                             className={`transition-all duration-700 font-mono ${
                             isHighlighted 
                                 ? 'bg-eco-500/40 shadow-[inset_0_0_20px_rgba(16,185,129,0.4)]' 
-                                : isCurrentUser
-                                    ? 'bg-eco-500/10 hover:bg-eco-500/20'
-                                    : 'hover:bg-eco-800/30'
+                                : isEshel
+                                    ? 'bg-pink-500/10 hover:bg-pink-500/20 border-l-2 border-pink-500'
+                                    : isCurrentUser
+                                        ? 'bg-eco-500/10 hover:bg-eco-500/20'
+                                        : 'hover:bg-eco-800/30'
                             }`}
                         >
                             <td className="px-6 py-4 whitespace-nowrap">
@@ -93,23 +171,31 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ users, currentUserId, lang })
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                             <div className="flex items-center">
-                                <div className={`h-10 w-10 rounded-lg flex items-center justify-center text-white font-bold mx-2 border transition-all duration-500 ${
+                                <div className={`h-10 w-10 flex items-center justify-center text-white font-bold mx-2 transition-all duration-500 ${
                                     isHighlighted 
-                                        ? 'bg-eco-400 border-white scale-110 shadow-[0_0_15px_rgba(255,255,255,0.5)]'
-                                        : isCurrentUser 
-                                            ? 'bg-gradient-to-br from-eco-600 to-eco-800 border-eco-400/50' 
-                                            : 'bg-eco-900/50 border-eco-800'
+                                        ? 'scale-110'
+                                        : ''
                                 }`}>
-                                    {user.name.charAt(0).toUpperCase()}
+                                    <AnimatedProfilePicture
+                                        profilePicture={user.profilePicture}
+                                        borderType={user.borderType}
+                                        size="md"
+                                        themeId={themeId}
+                                    />
                                 </div>
                                 <div>
                                     <div className={`text-sm font-bold flex items-center gap-2 ${
-                                        isCurrentUser ? 'text-white' : 'text-eco-200'
+                                        isEshel ? 'text-pink-400' : isCurrentUser ? 'text-white' : 'text-eco-200'
                                     }`}>
                                         {user.name} 
                                         {isCurrentUser && (
                                             <span className="text-[9px] bg-eco-500/20 text-eco-300 px-1.5 py-0.5 rounded border border-eco-500/30 uppercase tracking-wider">
                                                 {t.you}
+                                            </span>
+                                        )}
+                                        {isEshel && (
+                                            <span className="text-[9px] bg-pink-500/20 text-pink-300 px-1.5 py-0.5 rounded border border-pink-500/30 uppercase tracking-wider">
+                                                SPECIAL
                                             </span>
                                         )}
                                     </div>

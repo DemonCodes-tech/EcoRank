@@ -1,21 +1,69 @@
+
 import React, { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { analyzeEcoAction } from '../services/geminiService';
-import { Loader2, Camera, X, Video, AlertTriangle, CheckCircle, ScanLine, Upload, Zap, Wifi, Cpu, RefreshCw } from 'lucide-react';
+import { Loader2, Camera, X, Video, AlertTriangle, CheckCircle, ScanLine, Upload, Zap, Wifi, Cpu, RefreshCw, Skull, ShieldAlert, Flame, Clock } from 'lucide-react';
 import { Language } from '../types';
 import { translations } from '../services/translations';
+import { hapticSuccess, hapticError, hapticClick } from '../services/haptics';
 
 interface ActionLogProps {
-  onPointsAwarded: (points: number, description: string, comment: string, category: string) => void;
+  onPointsAwarded: (points: number, description: string, comment: string, category: string, confidenceScore?: number) => void;
+  onActionPendingReview: (proposedPoints: number, description: string, comment: string, category: string, confidenceScore: number, videoData: string, mimeType: string) => void;
+  onActionRejected: () => void;
+  currentStreak: number;
   lang: Language;
+  section?: string;
+  dailyLimit?: number;
+  userName?: string;
+  isLowPowerMode: boolean;
 }
 
-const ActionLog: React.FC<ActionLogProps> = ({ onPointsAwarded, lang }) => {
+const ActionLog: React.FC<ActionLogProps> = ({ onPointsAwarded, onActionPendingReview, onActionRejected, currentStreak, lang, section = '10b1', dailyLimit = 25, userName, isLowPowerMode }) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [feedback, setFeedback] = useState<{ points: number; comment: string; isVerified: boolean } | null>(null);
+  const [feedback, setFeedback] = useState<{ points: number; comment: string; isVerified: boolean; confidenceScore?: number; isPending?: boolean } | null>(null);
+  const [showWarning, setShowWarning] = useState(false);
+  const [timeLeft, setTimeLeft] = useState('');
+  const [dailyCount, setDailyCount] = useState(0);
+  const [location, setLocation] = useState<{lat: number, lng: number} | null>(null);
+  
+  const isEshel = userName?.toLowerCase() === 'eshel';
+
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const stored = localStorage.getItem(`daily_count_${today}`);
+    if (stored) {
+        setDailyCount(parseInt(stored));
+    } else {
+        // Reset if new day
+        setDailyCount(0);
+    }
+
+    // Request location for anti-cheat
+    if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                setLocation({
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                });
+            },
+            (error) => {
+                console.warn("Location access denied or unavailable.", error);
+            }
+        );
+    }
+  }, []);
+
+  const updateDailyCount = () => {
+      const today = new Date().toISOString().split('T')[0];
+      const newCount = dailyCount + 1;
+      setDailyCount(newCount);
+      localStorage.setItem(`daily_count_${today}`, newCount.toString());
+  };
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const t = translations[lang];
 
@@ -23,6 +71,7 @@ const ActionLog: React.FC<ActionLogProps> = ({ onPointsAwarded, lang }) => {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [analysisStep, setAnalysisStep] = useState<string>('');
   
   const liveVideoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -30,10 +79,42 @@ const ActionLog: React.FC<ActionLogProps> = ({ onPointsAwarded, lang }) => {
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Cleanup on unmount or visibility change
   useEffect(() => {
+    const handleVisibilityChange = () => {
+        if (document.hidden) {
+            stopCamera();
+        }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       stopCamera();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
+  }, []);
+
+  // Countdown Timer Logic
+  useEffect(() => {
+    const updateTimer = () => {
+        const now = new Date();
+        const midnight = new Date();
+        midnight.setHours(24, 0, 0, 0); // Next midnight
+        const diff = midnight.getTime() - now.getTime();
+        
+        if (diff <= 0) {
+            setTimeLeft('00:00:00');
+        } else {
+            const h = Math.floor(diff / (1000 * 60 * 60));
+            const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const s = Math.floor((diff % (1000 * 60)) / 1000);
+            setTimeLeft(`${h}h ${m}m ${s}s`);
+        }
+    };
+    
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
   }, []);
 
   // Monitor camera state and attach stream to video element once it mounts
@@ -44,9 +125,9 @@ const ActionLog: React.FC<ActionLogProps> = ({ onPointsAwarded, lang }) => {
     }
   }, [isCameraOpen]);
 
-  // Auto-stop recording after 30 seconds
+  // Auto-stop recording after 15 seconds (Optimized from 30s)
   useEffect(() => {
-    if (isRecording && recordingTime >= 30) {
+    if (isRecording && recordingTime >= 15) {
         stopRecording();
     }
   }, [recordingTime, isRecording]);
@@ -57,22 +138,33 @@ const ActionLog: React.FC<ActionLogProps> = ({ onPointsAwarded, lang }) => {
 
   const startCamera = async () => {
     try {
-      // OPTIMIZATION: Request lower resolution and frame rate to reduce processing load
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
             facingMode: 'environment',
-            width: { ideal: 480 }, // 480p is enough for AI
-            height: { ideal: 360 },
-            frameRate: { ideal: 24 } // 24fps for smoother 30s video
+            width: { ideal: isLowPowerMode ? 1280 : 1920 }, // 720p or 1080p
+            height: { ideal: isLowPowerMode ? 720 : 1080 },
+            frameRate: { ideal: isLowPowerMode ? 30 : 60 } 
         }, 
-        audio: false // Disable audio to save bandwidth
+        audio: false 
       });
       streamRef.current = stream;
       setIsCameraOpen(true);
       setFeedback(null);
     } catch (err) {
-      console.error("Error accessing camera:", err);
-      alert("Could not access camera. Please allow permissions.");
+      console.warn("Error accessing environment camera, trying fallback:", err);
+      try {
+        // Fallback to any available camera
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ 
+          video: true,
+          audio: false 
+        });
+        streamRef.current = fallbackStream;
+        setIsCameraOpen(true);
+        setFeedback(null);
+      } catch (fallbackErr) {
+        console.error("Error accessing camera:", fallbackErr);
+        alert("Could not access camera. Please allow permissions in your browser settings.");
+      }
     }
   };
 
@@ -94,35 +186,47 @@ const ActionLog: React.FC<ActionLogProps> = ({ onPointsAwarded, lang }) => {
     if (!streamRef.current) return;
     
     chunksRef.current = [];
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8') 
-        ? 'video/webm;codecs=vp8' // VP8 is older but very compatible and fast
-        : 'video/webm';
+    // Prefer webm (Chrome/Firefox), fallback to mp4 (Safari)
+    const mimeType = MediaRecorder.isTypeSupported('video/webm') 
+        ? 'video/webm'
+        : 'video/mp4';
       
     try {
         const options: MediaRecorderOptions = { 
-            mimeType,
-            // 350 kbps: ~1.5MB for 30s. Good balance for mobile upload + AI analysis.
-            videoBitsPerSecond: 350000 
+            mimeType
         };
 
         const recorder = new MediaRecorder(streamRef.current, options);
         
         recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) chunksRef.current.push(e.data);
+          if (e.data && e.data.size > 0) {
+              chunksRef.current.push(e.data);
+          }
         };
     
         recorder.onstop = () => {
-          const type = chunksRef.current[0]?.type || 'video/webm';
+          const type = mimeType;
           const blob = new Blob(chunksRef.current, { type });
+          
+          if (blob.size < 10000) { // Less than 10KB usually means corrupted or empty
+              alert("Video recording was too short or corrupted. Please try again.");
+              stopCamera();
+              return;
+          }
+
           const ext = type.includes('mp4') ? 'mp4' : 'webm';
           const file = new File([blob], `capture_${Date.now()}.${ext}`, { type });
           
           setSelectedFile(file);
           setPreviewUrl(URL.createObjectURL(file));
-          stopCamera(); 
+          stopCamera();
+          
+          // Auto-analyze after recording
+          triggerAnalysisFlow(file);
         };
     
-        recorder.start(1000); // Collect chunks every second
+        // Do not use timeslice (e.g. recorder.start(1000)) as it can corrupt WebM headers in some browsers
+        recorder.start(); 
         setIsRecording(true);
         mediaRecorderRef.current = recorder;
         
@@ -148,93 +252,212 @@ const ActionLog: React.FC<ActionLogProps> = ({ onPointsAwarded, lang }) => {
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      // Basic size check for uploads (15MB limit)
-      if (file.size > 15 * 1024 * 1024) {
-          alert(t.fileTooLarge);
-          return;
-      }
-      setSelectedFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
-      setIsCameraOpen(false);
-    }
-  };
-
   const clearFile = () => {
     setSelectedFile(null);
     setPreviewUrl(null);
     setFeedback(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
     stopCamera();
   };
 
-  const fileToBase64 = (file: File): Promise<string> => {
+  // Optimized media processor
+  const processMediaForAI = async (file: File): Promise<{ base64: string, mimeType: string }> => {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          // Removes "data:video/mp4;base64," prefix
-          const base64 = reader.result.split(',')[1];
-          resolve(base64);
-        } else {
-          reject(new Error('Failed to convert file'));
-        }
-      };
-      reader.onerror = error => reject(error);
+      // If it's an image, resize it via Canvas to reduce payload size
+      if (file.type.startsWith('image/')) {
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          // Resize large images to max 1024px dimension, 512px for low optimization
+          const MAX_SIZE = isLowPowerMode ? 512 : 1024;
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+             ctx.drawImage(img, 0, 0, width, height);
+             // Compress to JPEG 0.8 quality
+             const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+             resolve({ 
+                 base64: dataUrl.split(',')[1], 
+                 mimeType: 'image/jpeg' 
+             });
+          } else {
+             // Fallback if canvas context fails
+             const reader = new FileReader();
+             reader.onload = () => resolve({ base64: (reader.result as string).split(',')[1], mimeType: file.type });
+             reader.readAsDataURL(file);
+          }
+        };
+        img.onerror = reject;
+      } else {
+        // Video handling (already optimized via recording bitrate)
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            const base64 = reader.result.split(',')[1];
+            resolve({ base64, mimeType: file.type });
+          } else {
+            reject(new Error('Failed to convert file'));
+          }
+        };
+        reader.onerror = error => reject(error);
+      }
     });
   };
 
-  const handleSubmit = async (e?: React.FormEvent) => {
+  // Haversine formula
+  const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371; // Radius of the earth in km
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (lon2 - lon1) * (Math.PI / 180);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const d = R * c; // Distance in km
+    return d;
+  };
+
+  const triggerAnalysisFlow = (file: File) => {
+      const isBetaTester = userName?.toLowerCase() === 'bt';
+      
+      if (!isBetaTester) {
+          if (!location) {
+              setFeedback({
+                  points: 0,
+                  comment: "LOCATION REQUIRED. Please enable GPS to verify you are at MAIS Sharjah.",
+                  isVerified: false
+              });
+              return;
+          }
+          
+          const maisLat = 25.3855;
+          const maisLng = 55.4300;
+          const distance = getDistanceFromLatLonInKm(location.lat, location.lng, maisLat, maisLng);
+          
+          // 2 km radius for MAIS Sharjah
+          if (distance > 2) {
+              setFeedback({
+                  points: 0,
+                  comment: "LOCATION REJECTED. You must be at MAIS Sharjah to submit actions.",
+                  isVerified: false
+              });
+              return;
+          }
+      }
+
+      if (currentStreak > 0) {
+          setShowWarning(true);
+      } else {
+          processSubmission(file);
+      }
+  };
+
+  const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!selectedFile) return;
 
+    triggerAnalysisFlow(selectedFile);
+  };
+
+  const processSubmission = async (fileOverride?: File) => {
+    const file = fileOverride || selectedFile;
+    if (!file) return;
+
+    // Check Daily Limit
+    if (dailyCount >= dailyLimit) {
+        setFeedback({
+            points: 0,
+            comment: `DAILY LIMIT REACHED (${dailyCount}/${dailyLimit}). COME BACK TOMORROW.`,
+            isVerified: false
+        });
+        return;
+    }
+
     setIsAnalyzing(true);
     setFeedback(null);
+    setShowWarning(false);
+    setAnalysisStep('Processing Media...');
 
     try {
-      let base64Data: string | undefined = undefined;
-      let mimeType: string | undefined = undefined;
-
-      if (selectedFile) {
-        base64Data = await fileToBase64(selectedFile);
-        mimeType = selectedFile.type;
-      }
-
+      const { base64, mimeType } = await processMediaForAI(file);
+      
+      setAnalysisStep('Consulting AI Referee...');
       const defaultDescription = "Eco-friendly action check";
-      const result = await analyzeEcoAction(defaultDescription, base64Data, mimeType);
+      const result = await analyzeEcoAction(defaultDescription, base64, mimeType, isLowPowerMode, location);
       
+      setAnalysisStep('Verifying Result...');
       let displayComment = result.comment;
-      
-      // Only replace comment with flavor text if it's NOT a system error
-      if (!result.isVerified && result.category !== 'Error') {
+      let finalPoints = result.points > 0 ? result.points : 5; // Use AI points or fallback
+
+      const isBT = userName?.toLowerCase() === 'bt';
+      const isPendingReview = ((result.confidenceScore !== undefined && result.confidenceScore < 50) || isBT) && result.category !== 'Error';
+
+      if (!result.isVerified && result.category !== 'Error' && !isPendingReview) {
+          finalPoints = 0; // Reset points if rejected and not pending
           const failureQuotes = [
               "ACTION UNVERIFIED.",
               "INSUFFICIENT EVIDENCE.",
               "LOW CONFIDENCE SCORE.",
               "VISUALS UNCLEAR.",
               "FRAUD DETECTED.",
-              "MOTION UNDETECTED.",
-              "NO DISPOSAL ACTION SEEN.",
               "SUBJECT UNCLEAR.",
-              "ENVIRONMENTAL MISMATCH."
+              "A TRASH A DAY KEEPS MR MAHMOOD AWAY."
           ];
           displayComment = failureQuotes[Math.floor(Math.random() * failureQuotes.length)];
       }
       
+      if (isPendingReview) {
+          if (isBT && result.confidenceScore !== undefined && result.confidenceScore >= 50) {
+              displayComment = "BT Test Mode: The video has been sent to a moderator and it might take a day or 2. Thank you for your patience.";
+          } else {
+              displayComment = "The video has been sent to a moderator and it might take a day or 2. Thank you for your patience.";
+          }
+      }
+
       setFeedback({ 
-        points: result.points, 
+        points: isPendingReview ? 0 : finalPoints, 
         comment: displayComment,
-        isVerified: result.isVerified
+        isVerified: isPendingReview ? true : result.isVerified, // Force true so the UI doesn't show a red X if it's pending
+        confidenceScore: result.confidenceScore,
+        isPending: isPendingReview
       });
 
-      if (result.isVerified && result.points > 0) {
-        onPointsAwarded(result.points, 'VERIFIED_ACTION', result.comment, result.category);
-        clearFile();
+      if (isPendingReview) {
+        hapticSuccess();
+        setTimeout(() => {
+            onActionPendingReview(finalPoints, 'VERIFIED_ACTION', result.comment, result.category, result.confidenceScore || 0, base64, mimeType);
+            updateDailyCount();
+            clearFile();
+        }, 5000); // Wait longer so they can read the message
+      } else if (result.isVerified && finalPoints > 0) {
+        // Delay clearing to show the success animation
+        hapticSuccess();
+        setTimeout(() => {
+            onPointsAwarded(finalPoints, 'VERIFIED_ACTION', result.comment, result.category, result.confidenceScore);
+            updateDailyCount(); // Increment daily count
+            clearFile();
+        }, 2500);
+      } else if (!result.isVerified) {
+        hapticError();
+        onActionRejected();
       }
       
     } catch (err) {
@@ -250,72 +473,125 @@ const ActionLog: React.FC<ActionLogProps> = ({ onPointsAwarded, lang }) => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-4 animate-slide-up">
-      <div className="bg-black/40 backdrop-blur-xl border border-eco-500/30 p-1">
-        {/* Terminal Header */}
-        <div className="bg-eco-900/30 px-4 py-2 flex items-center justify-between border-b border-eco-500/30">
-            <span className="text-xs font-mono text-eco-400 uppercase tracking-widest">>> {t.uploadModule}</span>
-            <div className="flex gap-2 items-center">
-                <span className="text-[10px] text-eco-600 font-mono hidden md:inline">LOW_BW_MODE: ON</span>
-                <div className="flex gap-1">
-                    <div className="w-2 h-2 bg-eco-500 rounded-full animate-pulse"></div>
-                    <div className="w-2 h-2 bg-eco-500/30 rounded-full"></div>
+    <div className="max-w-3xl mx-auto p-4 animate-slide-up relative">
+      
+      {/* SUCCESS / PENDING OVERLAY (Blocks interactions momentarily) */}
+      <AnimatePresence>
+      {feedback?.isVerified && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.1 }}
+            className={`absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md rounded-xl border ${feedback.isPending ? 'border-blue-500' : 'border-eco-500'}`}
+          >
+              <div className="flex flex-col items-center text-center p-6">
+                  <motion.div 
+                    initial={{ scale: 0, rotate: -45 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                    className="relative mb-6"
+                  >
+                      <div className={`absolute inset-0 ${feedback.isPending ? 'bg-blue-500' : 'bg-eco-500'} blur-3xl opacity-30 animate-pulse rounded-full`}></div>
+                      {feedback.isPending ? (
+                          <Clock className="h-24 w-24 text-blue-400 fill-blue-900" />
+                      ) : (
+                          <CheckCircle className="h-24 w-24 text-eco-400 fill-eco-900" />
+                      )}
+                      {/* Particles */}
+                      <div className="absolute -top-2 -right-2 w-4 h-4 bg-white rounded-full animate-ping"></div>
+                      <div className={`absolute -bottom-2 -left-2 w-3 h-3 ${feedback.isPending ? 'bg-blue-300' : 'bg-eco-300'} rounded-full animate-ping delay-100`}></div>
+                  </motion.div>
+                  
+                  {!feedback.isPending && (
+                      <motion.div 
+                        initial={{ y: 20, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        transition={{ delay: 0.2 }}
+                        className="text-6xl font-black text-white italic tracking-tighter mb-2"
+                      >
+                          +{feedback.points}
+                      </motion.div>
+                  )}
+                  
+                  <motion.div 
+                    initial={{ width: 0, opacity: 0 }}
+                    animate={{ width: "auto", opacity: 1 }}
+                    transition={{ delay: 0.4 }}
+                    className={`px-4 py-1 ${feedback.isPending ? 'bg-blue-500/20 border-blue-500 text-blue-300' : 'bg-eco-500/20 border-eco-500 text-eco-300'} border rounded-full font-mono text-xs uppercase tracking-[0.3em] overflow-hidden whitespace-nowrap`}
+                  >
+                      {feedback.isPending ? 'PENDING REVIEW' : t.verified}
+                  </motion.div>
+
+                  {feedback.isPending && (
+                      <motion.p
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.5 }}
+                        className="mt-6 text-gray-300 text-sm max-w-sm leading-relaxed"
+                      >
+                          {feedback.comment}
+                      </motion.p>
+                  )}
+
+                  {feedback.confidenceScore !== undefined && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.6 }}
+                        className="mt-4 px-3 py-1 bg-white/5 border border-white/10 rounded-full text-gray-400 font-mono text-[10px] uppercase tracking-wider"
+                      >
+                          Confidence Score: {feedback.confidenceScore}%
+                      </motion.div>
+                  )}
+              </div>
+          </motion.div>
+      )}
+      </AnimatePresence>
+
+      <div className={`bg-white/5 backdrop-blur-xl border ${isEshel ? 'border-pink-500/20' : 'border-white/10'} rounded-3xl overflow-hidden shadow-2xl`}>
+        {/* Minimal Header */}
+        <div className="px-6 py-4 flex items-center justify-between border-b border-white/5">
+            <span className={`text-sm font-medium ${isEshel ? 'text-pink-400' : 'text-eco-400'}`}>{t.uploadModule}</span>
+            <div className="flex gap-3 items-center">
+                <div className="flex gap-1.5">
+                    <div className={`w-2 h-2 ${isEshel ? 'bg-pink-500' : 'bg-eco-500'} rounded-full animate-pulse`}></div>
                 </div>
             </div>
         </div>
 
         <div className="p-6 md:p-8">
-            <div className="text-center mb-8 font-mono">
-            <h2 className="text-2xl text-white mb-2 uppercase tracking-tight flex items-center justify-center gap-2">
-                <ScanLine className="h-6 w-6 text-eco-400" />
-                {t.uploadTitle}
-            </h2>
-            <p className="text-eco-500/60 text-xs">{t.uploadDesc}</p>
+            <div className="text-center mb-8">
+                <h2 className="text-2xl font-bold text-white mb-2 tracking-tight flex items-center justify-center gap-2">
+                    {t.uploadTitle}
+                </h2>
+                <p className="text-gray-400 text-sm">{t.uploadDesc}</p>
+                <div className={`mt-4 inline-block px-4 py-1.5 ${isEshel ? 'bg-pink-500/10 text-pink-400' : 'bg-eco-500/10 text-eco-400'} rounded-full text-xs font-medium`}>
+                    Daily Limit: {dailyCount}/{dailyLimit}
+                </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form className="space-y-6">
             
             {/* Media Area */}
             <div className="space-y-2 relative group">
-                {/* Corner Accents */}
-                <div className="absolute -top-1 -left-1 w-4 h-4 border-t border-l border-eco-500 z-20"></div>
-                <div className="absolute -top-1 -right-1 w-4 h-4 border-t border-r border-eco-500 z-20"></div>
-                <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b border-l border-eco-500 z-20"></div>
-                <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b border-r border-eco-500 z-20"></div>
-
                 {!previewUrl && !isCameraOpen ? (
-                   <div className="w-full h-56 bg-[radial-gradient(#064e3b_1px,transparent_1px)] [background-size:16px_16px] bg-black/50 border border-dashed border-eco-700 flex flex-col items-center justify-center relative overflow-hidden p-6 gap-6">
+                    <div className="w-full h-64 bg-white/5 border-2 border-dashed border-white/10 hover:border-eco-500/50 hover:bg-white/10 transition-all rounded-2xl flex flex-col items-center justify-center relative overflow-hidden p-6 gap-6 group-hover:shadow-lg">
                         <div className="flex items-center justify-center gap-8 w-full">
-                            {/* Upload Option */}
-                            <button 
-                                type="button"
-                                onClick={() => fileInputRef.current?.click()}
-                                className="flex flex-col items-center gap-3 group/btn hover:bg-white/5 p-4 rounded-xl transition-all"
-                            >
-                                <div className="bg-eco-900/50 p-4 rounded-full border border-eco-500/30 group-hover/btn:scale-110 group-hover/btn:border-eco-400 transition-all">
-                                    <Upload className="h-6 w-6 text-eco-400" />
-                                </div>
-                                <span className="text-eco-300 font-mono text-xs tracking-wider">{t.uploadFile}</span>
-                            </button>
-
-                            <div className="h-12 w-px bg-eco-800"></div>
-
                             {/* Camera Option */}
                             <button 
                                 type="button"
-                                onClick={startCamera}
-                                className="flex flex-col items-center gap-3 group/btn hover:bg-white/5 p-4 rounded-xl transition-all"
+                                onClick={() => { hapticClick(); startCamera(); }}
+                                className="flex flex-col items-center gap-3 group/btn p-4 rounded-xl transition-all"
                             >
-                                <div className="bg-eco-900/50 p-4 rounded-full border border-eco-500/30 group-hover/btn:scale-110 group-hover/btn:border-eco-400 transition-all">
-                                    <Camera className="h-6 w-6 text-eco-400" />
+                                <div className="bg-white/5 p-5 rounded-full group-hover/btn:bg-eco-500/20 group-hover/btn:scale-110 transition-all">
+                                    <Camera className="h-6 w-6 text-gray-400 group-hover/btn:text-eco-400" />
                                 </div>
-                                <span className="text-eco-300 font-mono text-xs tracking-wider">{t.recordVideo}</span>
+                                <span className="text-gray-400 font-medium text-sm">{t.recordVideo}</span>
                             </button>
                         </div>
-                        <p className="text-eco-600 text-[10px] absolute bottom-2 font-mono uppercase tracking-widest">{t.selectInput}</p>
                     </div>
                 ) : isCameraOpen ? (
-                    <div className="relative w-full h-72 bg-black border border-eco-500/50 overflow-hidden rounded-sm">
+                    <div className="relative w-full h-80 bg-black overflow-hidden rounded-2xl shadow-2xl">
                          <video 
                             ref={liveVideoRef} 
                             autoPlay 
@@ -325,23 +601,27 @@ const ActionLog: React.FC<ActionLogProps> = ({ onPointsAwarded, lang }) => {
                          />
                          
                          {/* Live Indicator */}
-                         <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/50 px-2 py-1 rounded">
+                         <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full z-20">
                             <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                            <span className="text-white text-[10px] font-mono tracking-widest">{t.liveFeed} [480p]</span>
+                            <span className="text-white text-xs font-medium tracking-wide">Live</span>
                          </div>
+
+                         {/* Low Power Mode Indicator */}
+                         {isLowPowerMode && (
+                             <div className="absolute top-4 left-20 flex items-center gap-2 bg-yellow-500/20 backdrop-blur-md px-3 py-1.5 rounded-full border border-yellow-500/30 z-20">
+                                <Zap className="w-3 h-3 text-yellow-500" />
+                                <span className="text-yellow-500 text-[10px] font-bold tracking-wide uppercase">Eco Mode</span>
+                             </div>
+                         )}
 
                          {/* Enhanced Timer */}
                          {isRecording && (
-                             <div className="absolute top-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 z-20">
-                                 <div className="bg-black/60 backdrop-blur-md px-5 py-2 rounded-full border border-red-500/50 flex items-center gap-3 shadow-[0_0_30px_rgba(220,38,38,0.4)]">
-                                      <div className="w-3 h-3 bg-red-600 rounded-full animate-[pulse_0.5s_cubic-bezier(0.4,0,0.6,1)_infinite]"></div>
-                                      <div className="font-mono font-bold text-xl text-white tracking-wider flex items-baseline gap-1">
-                                         <span>{formatTime(recordingTime)}</span>
-                                         <span className="text-xs text-white/40">/ 0:30</span>
+                             <div className="absolute top-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-20">
+                                 <div className="bg-black/60 backdrop-blur-md px-6 py-2 rounded-full border border-red-500/30 flex items-center gap-3">
+                                      <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                                      <div className="font-mono font-bold text-lg text-white tracking-wider">
+                                         {formatTime(recordingTime)}
                                       </div>
-                                 </div>
-                                 <div className="text-[10px] text-red-400 font-mono uppercase tracking-[0.2em] animate-pulse font-bold">
-                                     Recording Active
                                  </div>
                              </div>
                          )}
@@ -349,178 +629,199 @@ const ActionLog: React.FC<ActionLogProps> = ({ onPointsAwarded, lang }) => {
                          <button 
                             type="button" 
                             onClick={stopCamera} 
-                            className="absolute top-2 right-2 p-2 bg-black/50 text-white rounded-full hover:bg-red-900/50 transition-colors"
+                            className="absolute top-4 right-4 p-2 bg-black/50 text-white rounded-full hover:bg-white/20 transition-colors backdrop-blur-md"
                          >
                             <X className="h-5 w-5" />
                          </button>
 
                          {/* Controls */}
-                         <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex items-center justify-center">
+                         <div className="absolute bottom-8 left-0 w-full flex items-center justify-center">
                             {!isRecording ? (
                                 <button 
                                     type="button" 
-                                    onClick={startRecording} 
-                                    className="group flex flex-col items-center gap-2"
+                                    onClick={() => { hapticClick(); startRecording(); }}
+                                    className="group relative"
                                 >
-                                    <div className="relative">
-                                        <div className="absolute inset-0 bg-red-500 blur-xl opacity-20 group-hover:opacity-40 transition-opacity rounded-full"></div>
-                                        <div className="w-20 h-20 rounded-full border-4 border-white/20 flex items-center justify-center group-hover:border-white transition-all group-hover:scale-105 bg-black/20 backdrop-blur-sm">
-                                            <div className="w-14 h-14 bg-red-600 rounded-full shadow-inner shadow-red-800"></div>
-                                        </div>
+                                    <div className="w-20 h-20 rounded-full border-4 border-white/30 flex items-center justify-center group-hover:border-white transition-all group-hover:scale-105 bg-black/20 backdrop-blur-sm">
+                                        <div className="w-16 h-16 bg-red-500 rounded-full shadow-lg shadow-red-500/30"></div>
                                     </div>
-                                    <span className="text-white text-xs font-mono tracking-widest uppercase opacity-80 group-hover:opacity-100">{t.startRecord}</span>
                                 </button>
                             ) : (
                                 <button 
                                     type="button" 
-                                    onClick={stopRecording} 
-                                    className="group flex flex-col items-center gap-2"
+                                    onClick={() => { hapticClick(); stopRecording(); }}
+                                    className="group relative"
                                 >
-                                    <div className="relative">
-                                         <div className="absolute inset-0 rounded-full border-4 border-red-500/30 animate-[ping_1.5s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
-                                         <div className="w-20 h-20 rounded-full border-4 border-red-500 flex items-center justify-center bg-red-950/30 backdrop-blur-sm transition-all group-hover:bg-red-900/50 group-hover:scale-105">
-                                            <div className="w-8 h-8 bg-white rounded-md shadow-sm"></div>
-                                        </div>
+                                    <div className="w-20 h-20 rounded-full border-4 border-red-500 flex items-center justify-center bg-red-500/10 backdrop-blur-sm transition-all group-hover:scale-105">
+                                        <div className="w-8 h-8 bg-red-500 rounded-md shadow-sm"></div>
                                     </div>
-                                    <span className="text-red-400 text-xs font-mono tracking-widest uppercase font-bold animate-pulse">{t.stopRecord}</span>
                                 </button>
                             )}
                          </div>
                     </div>
                 ) : (
-                    <div className="relative w-full h-64 bg-black border border-eco-500/50">
+                    <div className="relative w-full h-80 bg-black rounded-2xl overflow-hidden shadow-2xl">
                         {selectedFile?.type.startsWith('video') ? (
-                            <video src={previewUrl!} controls className="w-full h-full object-contain opacity-90" />
+                            <video src={previewUrl!} controls className="w-full h-full object-contain bg-black" />
                         ) : (
-                            <img src={previewUrl!} alt="Preview" className="w-full h-full object-contain opacity-90" />
+                            <img src={previewUrl!} alt="Preview" className="w-full h-full object-contain bg-black" />
                         )}
                         
                         {/* Scanning Line Animation & HUD Overlay */}
                         {isAnalyzing && (
                             <>
-                                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-eco-500/20 to-transparent w-full h-[10%] animate-[scan_2s_linear_infinite] pointer-events-none z-10"></div>
+                                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-eco-500/10 to-transparent w-full h-[20%] animate-[scan_2s_linear_infinite] pointer-events-none z-10"></div>
                                 
                                 {/* New Centered HUD Overlay */}
                                 <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-                                    <div className="bg-black/80 backdrop-blur-sm border border-eco-500/50 px-6 py-3 rounded-sm shadow-[0_0_30px_rgba(16,185,129,0.2)] flex flex-col items-center gap-2 animate-pulse">
-                                        <div className="flex items-center gap-3">
-                                            <Cpu className="h-5 w-5 text-eco-400 animate-spin" />
-                                            <span className="text-eco-400 font-mono text-xs font-bold tracking-[0.2em]">{t.processingData}</span>
-                                        </div>
-                                        <div className="text-[9px] text-eco-600 font-mono tracking-widest uppercase">
-                                            AI_VISION_MODULE::ACTIVE
-                                        </div>
+                                    <div className="bg-black/80 backdrop-blur-xl border border-white/10 px-8 py-4 rounded-2xl shadow-2xl flex flex-col items-center gap-3">
+                                        <Loader2 className="h-8 w-8 text-eco-500 animate-spin" />
+                                        <span className="text-white font-medium text-sm tracking-wide">{analysisStep || t.processingData}</span>
                                     </div>
                                 </div>
-
-                                {/* Corner Brackets Animation */}
-                                <div className="absolute top-2 left-2 w-8 h-8 border-t-2 border-l-2 border-eco-500/70 rounded-tl-lg animate-pulse z-10"></div>
-                                <div className="absolute top-2 right-2 w-8 h-8 border-t-2 border-r-2 border-eco-500/70 rounded-tr-lg animate-pulse z-10"></div>
-                                <div className="absolute bottom-10 left-2 w-8 h-8 border-b-2 border-l-2 border-eco-500/70 rounded-bl-lg animate-pulse z-10"></div>
-                                <div className="absolute bottom-10 right-2 w-8 h-8 border-b-2 border-r-2 border-eco-500/70 rounded-br-lg animate-pulse z-10"></div>
                             </>
+                        )}
+                        
+                        {/* FAILURE OVERLAY */}
+                        {feedback && !feedback.isVerified && (
+                             <div className="absolute inset-0 bg-black/80 backdrop-blur-md z-30 flex flex-col items-center justify-center p-8 text-center">
+                                <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-6">
+                                    <AlertTriangle className="h-8 w-8 text-red-500" />
+                                </div>
+                                <h2 className="text-2xl font-bold text-white mb-2">Action Rejected</h2>
+                                <p className="text-gray-400 text-sm mb-4 max-w-xs leading-relaxed">
+                                    {feedback.comment}
+                                </p>
+                                {feedback.confidenceScore !== undefined && (
+                                    <div className="mb-8 px-3 py-1 bg-white/5 border border-white/10 rounded-full text-gray-400 font-mono text-[10px] uppercase tracking-wider">
+                                        Confidence Score: {feedback.confidenceScore}%
+                                    </div>
+                                )}
+                                <div className="flex gap-3 w-full max-w-xs">
+                                    <button 
+                                        onClick={clearFile} 
+                                        className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl font-medium text-sm transition-colors"
+                                    >
+                                        Dismiss
+                                    </button>
+                                    <button 
+                                        onClick={() => handleSubmit()} 
+                                        className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <RefreshCw className="h-4 w-4" /> Retry
+                                    </button>
+                                </div>
+                             </div>
                         )}
 
                         <button 
                             type="button"
                             onClick={clearFile}
-                            className="absolute top-2 right-2 bg-black/80 hover:bg-red-900/80 text-white p-2 border border-white/10 transition-colors z-30"
+                            className="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full backdrop-blur-md transition-colors z-30"
                         >
-                            <X className="h-4 w-4" />
+                            <X className="h-5 w-5" />
                         </button>
-                        <div className="absolute bottom-0 left-0 w-full bg-black/80 p-2 text-xs font-mono text-eco-400 border-t border-eco-800 flex items-center justify-between">
-                            <span className="flex items-center gap-2">
-                                {selectedFile?.type.startsWith('video') ? <Video className="h-3 w-3"/> : <Camera className="h-3 w-3"/>}
-                                <span className="uppercase">{selectedFile?.name.slice(0, 15)}...</span>
-                            </span>
-                            <span className="text-eco-700">{(selectedFile!.size / 1024 / 1024).toFixed(2)} MB</span>
+                    </div>
+                )}
+            </div>
+
+            {/* Streak Timer Display */}
+            <div className="w-full">
+                {currentStreak > 0 ? (
+                    <div className="flex items-center justify-between bg-orange-500/10 border border-orange-500/20 p-4 rounded-2xl relative overflow-hidden">
+                        <div className="flex items-center gap-4 relative z-10">
+                            <div className="bg-orange-500/20 p-2.5 rounded-full">
+                                <Flame className="h-5 w-5 text-orange-500" />
+                            </div>
+                            <div>
+                                <div className="text-xs text-orange-400 font-medium uppercase tracking-wide">Streak Active</div>
+                                <div className="text-lg font-bold text-white">{currentStreak} DAYS</div>
+                            </div>
+                        </div>
+                        <div className="text-right relative z-10">
+                            <div className="text-xs text-gray-500 font-medium mb-1">Ends In</div>
+                            <div className="text-xl font-mono font-bold text-white tabular-nums">{timeLeft}</div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex items-center justify-between bg-white/5 border border-white/5 p-4 rounded-2xl">
+                        <div className="flex items-center gap-4">
+                            <div className="bg-white/5 p-2.5 rounded-full">
+                                <Flame className="h-5 w-5 text-gray-500" />
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500 font-medium uppercase tracking-wide">No Streak</div>
+                                <div className="text-lg font-bold text-gray-400">Start Today</div>
+                            </div>
+                        </div>
+                        <div className="text-right">
+                             <div className="text-xs text-gray-600 font-medium mb-1">Timeout</div>
+                            <div className="text-xl font-mono font-bold text-gray-600">--:--:--</div>
                         </div>
                     </div>
                 )}
-                <input 
-                    type="file" 
-                    ref={fileInputRef}
-                    onChange={handleFileSelect}
-                    accept="video/*,image/*"
-                    className="hidden"
-                />
             </div>
-
-            <button
-                type="submit"
-                disabled={(!selectedFile && !isRecording) || isAnalyzing}
-                className={`w-full flex items-center justify-center gap-2 py-4 font-mono font-bold text-lg tracking-wider transition-all duration-200 border ${
-                !selectedFile || isAnalyzing
-                    ? 'bg-black/50 border-eco-900 text-eco-800 cursor-not-allowed'
-                    : 'bg-eco-600/20 hover:bg-eco-600/40 border-eco-500 text-eco-300 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
-                }`}
-            >
-                {isAnalyzing ? (
-                <>
-                    <Loader2 className="animate-spin h-5 w-5" />
-                    <span className="animate-pulse">{t.analyzing}</span>
-                </>
-                ) : (
-                <>
-                    {!selectedFile ? (
-                    <span className="opacity-50">{t.awaitingData}</span>
-                    ) : (
-                    <>
-                        <Zap className="h-5 w-5 fill-current" />
-                        {t.analyzeBtn}
-                    </>
-                    )}
-                </>
-                )}
-            </button>
             </form>
-
-            {feedback && (
-            <div className={`mt-8 p-1 border-l-4 font-mono animate-fade-in ${
-                feedback.isVerified 
-                ? 'border-l-eco-500 bg-eco-900/10' 
-                : 'border-l-red-500 bg-red-900/10'
-            }`}>
-                <div className="p-4">
-                    {feedback.isVerified ? (
-                        <div className="flex flex-col gap-2">
-                            <div className="flex items-center gap-2 text-eco-400 uppercase tracking-widest text-xs font-bold mb-1">
-                                <CheckCircle className="h-4 w-4" /> {t.verified}
-                            </div>
-                            <div className="text-4xl font-bold text-white mb-1">
-                            +{feedback.points} PTS
-                            </div>
-                            <p className="text-eco-200/80 text-sm">>> {feedback.comment}</p>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col gap-2">
-                             <div className="flex items-center gap-2 text-red-400 uppercase tracking-widest text-xs font-bold mb-1">
-                                <AlertTriangle className="h-4 w-4" /> {t.rejected}
-                            </div>
-                            <h3 className="text-xl font-bold text-red-500">REJECTED</h3>
-                            <p className="text-red-300/60 text-sm">>> {feedback.comment}</p>
-                            
-                            {(feedback.comment.toUpperCase().includes("ERROR") || feedback.comment.toUpperCase().includes("FAILED") || feedback.comment.toUpperCase().includes("RETRY") || feedback.comment.includes("TRANSMISSION")) && (
-                                <button 
-                                    onClick={() => handleSubmit()}
-                                    className="mt-2 self-start flex items-center gap-2 px-4 py-2 bg-red-900/40 border border-red-500/50 hover:bg-red-900/60 text-red-200 text-xs font-bold uppercase tracking-wider rounded transition-all"
-                                >
-                                    <RefreshCw className="h-3 w-3" /> {t.retry}
-                                </button>
-                            )}
-                        </div>
-                    )}
-                </div>
-            </div>
-            )}
         </div>
       </div>
       
-      <div className="mt-4 text-center">
-        <p className="text-[10px] text-eco-700 font-mono uppercase flex justify-center items-center gap-2">
-            <Wifi className="h-3 w-3" /> SECURE UPLINK // AI REFEREE ACTIVE
+      <div className="mt-6 text-center">
+        <p className="text-xs text-gray-600 font-medium flex justify-center items-center gap-2">
+            <Wifi className="h-3 w-3" /> Secure Uplink • AI Referee Active
         </p>
       </div>
+
+      {/* WARNING MODAL */}
+      {showWarning && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md animate-fade-in">
+             <div className="w-full max-w-sm bg-[#0a0a0a] border-2 border-red-600 shadow-[0_0_60px_rgba(220,38,38,0.5)] animate-slide-up relative overflow-hidden rounded-sm p-1 group">
+                <div className="absolute inset-0 bg-[repeating-linear-gradient(45deg,transparent,transparent_10px,rgba(220,38,38,0.05)_10px,rgba(220,38,38,0.05)_20px)] pointer-events-none"></div>
+                <div className="absolute inset-0 bg-red-900/5 animate-pulse pointer-events-none"></div>
+                
+                <div className="bg-black/80 p-6 flex flex-col items-center text-center relative z-10">
+                    <div className="relative mb-6">
+                        <div className="absolute inset-0 bg-red-600 blur-2xl opacity-30 animate-pulse rounded-full"></div>
+                        <Skull className="h-16 w-16 text-red-500 relative z-10 animate-pulse" />
+                    </div>
+                    
+                    <h2 className="text-3xl font-black text-red-600 uppercase tracking-tighter mb-2">
+                        {t.warningTitle}
+                    </h2>
+                    
+                    <div className="bg-red-950/30 border-l-2 border-red-600 p-4 mb-6 w-full text-left">
+                        <div className="flex justify-between items-end mb-2 border-b border-red-800/30 pb-2">
+                             <span className="text-[10px] text-red-400 font-mono uppercase tracking-widest">Risk Factor</span>
+                             <span className="text-sm text-red-500 font-mono font-bold animate-pulse">CRITICAL</span>
+                        </div>
+                        <p className="text-red-200 text-xs font-mono uppercase tracking-wider leading-relaxed">
+                            {t.warningDesc}
+                        </p>
+                        <div className="mt-3 flex items-center gap-2 text-[10px] text-red-500 font-mono font-bold uppercase">
+                            <AlertTriangle className="h-3 w-3" />
+                            <span>Streak at stake: {currentStreak} days</span>
+                        </div>
+                    </div>
+
+                    <div className="w-full space-y-3">
+                         <button
+                            onClick={() => processSubmission()}
+                            className="w-full py-4 bg-red-700 hover:bg-red-600 text-white font-black uppercase tracking-widest text-sm shadow-[0_0_20px_rgba(220,38,38,0.4)] hover:shadow-[0_0_30px_rgba(220,38,38,0.6)] transition-all border border-red-500 flex items-center justify-center gap-2 group/btn"
+                         >
+                            <ShieldAlert className="h-4 w-4 group-hover/btn:animate-ping" />
+                            <span>{t.warningConfirm}</span>
+                         </button>
+                         
+                         <button
+                            onClick={() => clearFile()}
+                            className="w-full py-3 bg-transparent text-red-500 border border-red-900/50 hover:bg-red-950/50 font-mono text-xs uppercase tracking-widest transition-colors"
+                         >
+                            {t.warningCancel}
+                         </button>
+                    </div>
+                </div>
+             </div>
+        </div>
+      )}
     </div>
   );
 };

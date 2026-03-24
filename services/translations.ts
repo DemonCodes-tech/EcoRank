@@ -1,14 +1,39 @@
+
 export const translations = {
   en: {
+    // Onboarding
+    onboardingSkip: "Skip",
+    onboardingNext: "Next",
+    onboardingStart: "Get Started",
+    onboarding1Title: "Welcome to EcoRank",
+    onboarding1Desc: "Your personal sustainability companion. Track your eco-friendly actions, build green habits, and make a real impact on the planet.",
+    onboarding2Title: "Log Your Actions",
+    onboarding2Desc: "Record videos of your sustainable choices—like recycling, using reusable bags, or picking up litter—to earn points and level up.",
+    onboarding3Title: "Compete & Rank",
+    onboarding3Desc: "See how you stack up against your classmates on the global leaderboard. Can you reach the top?",
+    onboarding4Title: "Earn Rewards",
+    onboarding4Desc: "Unlock exclusive themes, badges, and real-world eco-friendly rewards as you progress on your sustainability journey.",
+
+    // Boot Sequence
+    bootInit: "INITIALIZING KERNEL...",
+    bootDb: "LOADING DATABASE...",
+    bootNet: "ESTABLISHING UPLINK...",
+    bootAi: "CALIBRATING AI SENSORS...",
+    bootReady: "SYSTEM ONLINE",
+
     // Auth
     loginTitle: "ECO_RANK",
     loginSubtitle: "Student Sustainability Tracker",
-    enterUsername: "Enter Username",
+    enterUsername: "Enter Email",
+    enterPassword: "Enter Password",
+    enterPin: "Enter PIN",
     startSession: "Login",
     systemStatus: "System Online",
+    accountNotFound: "Account not found. Please contact a moderator or admin.",
+    passwordRequired: "Password is required to login.",
     
     // Dashboard
-    welcome: "Welcome",
+    welcome: "Welcome to EcoRank",
     score: "Score",
     logs: "Logs",
     streak: "Streak",
@@ -24,6 +49,10 @@ export const translations = {
     navScan: "Scan Trash",
     navRank: "Rankings",
     navStore: "Store",
+    navProtocols: "Reminders",
+    navAbout: "About",
+    navAnalytics: "Analytics",
+    navFAQ: "FAQ",
     feedback: "Feedback",
     exit: "Exit",
     themeSelector: "Theme Matrix",
@@ -48,12 +77,42 @@ export const translations = {
     processingData: "AI VISION PROCESSING",
     retry: "Retry Analysis",
     
+    // SCARY WARNINGS
+    warningTitle: "CRITICAL PROTOCOL ALERT",
+    warningDesc: "ACTIVE STREAK DETECTED. AI JUDGMENT IS FINAL. IF REJECTED, YOUR PROGRESS WILL BE TERMINATED IMMEDIATELY. NO SECOND CHANCES.",
+    warningConfirm: "ACCEPT RISK & EXECUTE",
+    warningCancel: "ABORT MISSION",
+    
     // Rewards
     rewardsTitle: "Rewards Store",
     comingSoon: "Coming Soon",
     rewardsDesc: "Points will be exchangeable for eco-friendly products and donations.",
     launching: "Launching 2026",
     
+    // Protocols (Reminders) -> NORMALIZED
+    protocolsTitle: "Daily Reminders",
+    protocolsDesc: "Manage your habits and get notified on time.",
+    addProtocol: "Add Reminder",
+    enterDirective: "Reminder title (e.g., Recycling)",
+    setTime: "Time",
+    activeProtocols: "Your Reminders",
+    noProtocols: "No reminders set yet.",
+    directive: "Reminder",
+    executionTime: "Time",
+    delete: "Delete",
+    incomingTransmission: "INCOMING TRANSMISSION",
+    protocolAlert: "PROTOCOL REMINDER",
+    acknowledge: "ACKNOWLEDGE",
+    
+    // Streak Protocol
+    primaryDirective: "Daily Goal",
+    streakProtocolName: "Daily Streak",
+    statusStable: "Completed Today",
+    statusCritical: "Action Required",
+    statusInactive: "No Active Streak",
+    streakRule: "Upload one action every 24h to keep the fire burning.",
+    timeLeft: "Time left today:",
+
     // Leaderboard
     globalRankings: "Global Rankings",
     topContributors: "Top contributors",
@@ -71,43 +130,124 @@ export const translations = {
     cancel: "Cancel",
     transmit: "Send",
     
-    // Beta
-    betaTitle: "Restricted Access",
-    betaDesc: "System is in Beta Testing.",
-    eligible: "Grades 9-10 Only",
-    understand: "I Understand",
-    
     // Tutorial
-    tutBetaTitle: "🚧 PROTOTYPE BUILD 🚧",
-    tutBetaDesc: "This app is UNFINISHED. The interface you see is temporary and NOT permanent. Expect major visual changes.",
-    tutBetaBtn: "I Understand",
-
     tut1Title: "Welcome Student",
     tut1Desc: "You have been recruited to track sustainability actions.",
     tut1Btn: "Start",
     
     tut2Title: "Scan Trash",
-    tut2Desc: "Go here to upload a photo or video of you recycling.",
+    tut2Desc: "Go here to record a video of you recycling.",
     tut2Btn: "Next",
     
+    tutStreakTitle: "Daily Streak",
+    tutStreakDesc: "This is your Streak Hub. Upload evidence every 24 hours to keep the fire alive.",
+    tutStreakBtn: "Next",
+
     tut3Title: "Rank Up",
-    tut3Desc: "Compete for the top spot. Earn 10 points per action.",
+    tut3Desc: "Compete for the top spot. Earn 5-8 points per action depending on your section.",
     tut3Btn: "Got it",
     
+    tutAboutTitle: "System Intel",
+    tutAboutDesc: "Learn about the mission, the team, and the rules of engagement. Knowledge is power.",
+    tutAboutBtn: "Proceed",
+
+    tutOptTitle: "System Optimization",
+    tutOptDesc: "Enable Low Power Mode to save battery and reduce motion. The system is locked to Dark Mode for maximum efficiency.",
+    tutOptBtn: "Understood",
+
     tut4Title: "Ready",
     tut4Desc: "Good luck. Make it count.",
     tut4Btn: "Enter",
+    
+    // Streak
+    streakLostTitle: "STREAK TERMINATED",
+    streakLostDesc: "Evidence rejected. Your progress has been reset.",
+
+    // Profile
+    profileTitle: "User Profile",
+    navProfile: "Profile",
+    editBio: "Edit Bio",
+    saveBio: "Save Bio",
+    realName: "Real Name",
+    nickname: "Nickname",
+    editNames: "Edit Names",
+    saveNames: "Save Names",
+    uploadPfp: "Upload Profile Picture",
+    pfpPending: "PFP Pending Approval",
+    pfpRejected: "PFP Rejected",
+    pfpApproved: "PFP Approved",
+    bioPending: "Bio Pending Approval",
+    bioRejected: "Bio Rejected",
+    bioApproved: "Bio Approved",
+    nicknamePending: "Nickname Pending Approval",
+    nicknameRejected: "Nickname Rejected",
+    nicknameApproved: "Nickname Approved",
+    moderationQueue: "Moderation Queue",
+    approve: "Approve",
+    reject: "Reject",
+    noPendingPfps: "No pending profile pictures.",
+    noPendingBios: "No pending bios.",
+    noPendingNicknames: "No pending nicknames.",
+    createUser: "Create New Account",
+    deleteUser: "Delete Account",
+    userCreated: "User created successfully",
+    userDeleted: "User deleted successfully",
+    confirmDelete: "Are you sure you want to delete this user?",
+    section: "Section",
+    role: "Role",
+    student: "Student",
+    moderator: "Moderator",
+    admin: "Admin",
+    achievements: "Achievements",
+    seedling: "Seedling",
+    seedlingDesc: "Earned 100 Points",
+    sprout: "Sprout",
+    sproutDesc: "Earned 500 Points",
+    tree: "Tree",
+    treeDesc: "Earned 1000 Points",
+    forest: "Forest",
+    forestDesc: "Earned 5000 Points",
+    guardian: "Guardian",
+    guardianDesc: "Earned 10000 Points",
+    locked: "Locked",
+    totalScore: "Total Score",
+    memberSince: "Member Since",
+    copyright: "© 2026 EcoRank. All rights reserved.",
   },
   ar: {
+    // Onboarding
+    onboardingSkip: "تخطي",
+    onboardingNext: "التالي",
+    onboardingStart: "البدء",
+    onboarding1Title: "مرحباً بك في إيكو رانك",
+    onboarding1Desc: "رفيقك الشخصي للاستدامة. تتبع أفعالك الصديقة للبيئة، وابنِ عادات خضراء، وأحدث تأثيراً حقيقياً على الكوكب.",
+    onboarding2Title: "سجل أفعالك",
+    onboarding2Desc: "سجل فيديوهات لاختياراتك المستدامة - مثل إعادة التدوير، أو استخدام أكياس قابلة لإعادة الاستخدام، أو التقاط القمامة - لكسب النقاط والارتقاء في المستوى.",
+    onboarding3Title: "تنافس وتصدر",
+    onboarding3Desc: "شاهد كيف تقارن بزملائك في لوحة المتصدرين العالمية. هل يمكنك الوصول إلى القمة؟",
+    onboarding4Title: "اكسب المكافآت",
+    onboarding4Desc: "افتح سمات حصرية، وشارات، ومكافآت حقيقية صديقة للبيئة كلما تقدمت في رحلتك نحو الاستدامة.",
+
+    // Boot Sequence
+    bootInit: "جاري تهيئة النظام...",
+    bootDb: "تحميل قاعدة البيانات...",
+    bootNet: "تأسيس الاتصال...",
+    bootAi: "معايرة الذكاء الاصطناعي...",
+    bootReady: "النظام جاهز",
+
     // Auth
     loginTitle: "إيكو رانك",
     loginSubtitle: "نظام تتبع الاستدامة الطلابي",
-    enterUsername: "أدخل اسم المستخدم",
+    enterUsername: "أدخل البريد الإلكتروني",
+    enterPassword: "أدخل كلمة المرور",
+    enterPin: "أدخل رمز PIN",
     startSession: "تسجيل الدخول",
     systemStatus: "النظام متصل",
+    accountNotFound: "الحساب غير موجود. يرجى الاتصال بالمشرف أو المسؤول.",
+    passwordRequired: "كلمة المرور مطلوبة لتسجيل الدخول.",
     
     // Dashboard
-    welcome: "مرحباً",
+    welcome: "مرحباً بك في إيكو رانك",
     score: "النقاط",
     logs: "السجلات",
     streak: "التتابع",
@@ -123,6 +263,10 @@ export const translations = {
     navScan: "مسح",
     navRank: "الترتيب",
     navStore: "المتجر",
+    navProtocols: "تذكيرات",
+    navAbout: "عن النظام",
+    navAnalytics: "التحليلات",
+    navFAQ: "الأسئلة الشائعة",
     feedback: "ملاحظات",
     exit: "خروج",
     themeSelector: "مصفوفة السمات",
@@ -147,12 +291,42 @@ export const translations = {
     processingData: "معالجة الذكاء الاصطناعي",
     retry: "إعادة المحاولة",
     
+    // SCARY WARNINGS
+    warningTitle: "تنبيه بروتوكول حرج",
+    warningDesc: "تم اكتشاف تتابع نشط. حكم الذكاء الاصطناعي نهائي. إذا تم الرفض، سيتم إنهاء تقدمك فوراً. لا توجد فرص ثانية.",
+    warningConfirm: "قبول الخطر والتنفيذ",
+    warningCancel: "إلغاء المهمة",
+    
     // Rewards
     rewardsTitle: "متجر المكافآت",
     comingSoon: "قريباً",
     rewardsDesc: "سيتم استبدال النقاط بمنتجات صديقة للبيئة وتبرعات.",
     launching: "الإطلاق 2026",
     
+    // Protocols (Reminders) -> NORMALIZED
+    protocolsTitle: "التذكيرات اليومية",
+    protocolsDesc: "أدر عاداتك واحصل على تنبيهات في الوقت المحدد.",
+    addProtocol: "إضافة تذكير",
+    enterDirective: "عنوان التذكير (مثلاً: إعادة التدوير)",
+    setTime: "الوقت",
+    activeProtocols: "تذكيراتك",
+    noProtocols: "لا توجد تذكيرات حتى الآن.",
+    directive: "التذكير",
+    executionTime: "الوقت",
+    delete: "حذف",
+    incomingTransmission: "واردة الإرسال",
+    protocolAlert: "تذكير بالبروتوكول",
+    acknowledge: "علم",
+    
+    // Streak Protocol
+    primaryDirective: "الهدف اليومي",
+    streakProtocolName: "التتابع اليومي",
+    statusStable: "اكتمل اليوم",
+    statusCritical: "مطلوب إجراء",
+    statusInactive: "لا يوجد تتابع نشط",
+    streakRule: "ارفع إجراءً واحداً كل 24 ساعة للحفاظ على شعلة التتابع.",
+    timeLeft: "الوقت المتبقي اليوم:",
+
     // Leaderboard
     globalRankings: "التصنيف العالمي",
     topContributors: "أفضل المساهمين",
@@ -170,32 +344,89 @@ export const translations = {
     cancel: "إلغاء",
     transmit: "إرسال",
     
-    // Beta
-    betaTitle: "دخول مقيد",
-    betaDesc: "النظام في مرحلة الاختبار التجريبي.",
-    eligible: "الصفوف 9-10 فقط",
-    understand: "فهمت",
-    
     // Tutorial
-    tutBetaTitle: "🚧 نسخة تجريبية 🚧",
-    tutBetaDesc: "هذا التطبيق غير مكتمل. الواجهة الحالية مؤقتة وليست دائمة. توقع تغييرات كبيرة في التصميم.",
-    tutBetaBtn: "فهمت",
-
     tut1Title: "مرحباً أيها الطالب",
     tut1Desc: "لقد تم اختيارك لتتبع إجراءات الاستدامة.",
     tut1Btn: "ابدأ",
     
     tut2Title: "مسح القمامة",
-    tut2Desc: "اذهب هنا لرفع صورة أو فيديو لك وأنت تعيد التدوير.",
+    tut2Desc: "اذهب هنا لتصوير فيديو لك وأنت تعيد التدوير.",
     tut2Btn: "التالي",
     
+    tutStreakTitle: "التتابع اليومي",
+    tutStreakDesc: "هذا هو مركز التتابع الخاص بك. ارفع دليلاً كل 24 ساعة للحفاظ على اشتعال النار.",
+    tutStreakBtn: "التالي",
+
     tut3Title: "ارفع تصنيفك",
-    tut3Desc: "نافس على المركز الأول. اكسب 10 نقاط لكل إجراء.",
+    tut3Desc: "نافس على المركز الأول. اكسب 5-8 نقاط لكل إجراء حسب قسمك.",
     tut3Btn: "فهمت",
     
+    tutAboutTitle: "معلومات النظام",
+    tutAboutDesc: "تعرف على المهمة، الفريق، وقواعد الاشتباك. المعرفة قوة.",
+    tutAboutBtn: "متابعة",
+
+    tutOptTitle: "تحسين النظام",
+    tutOptDesc: "قم بتمكين وضع الطاقة المنخفضة لتوفير البطارية وتقليل الحركة. النظام مقفل على الوضع الداكن لأقصى كفاءة.",
+    tutOptBtn: "فهمت",
+
     tut4Title: "جاهز",
     tut4Desc: "حظاً سعيداً. اجعل الأمر يستحق.",
     tut4Btn: "دخول",
+
+    // Streak
+    streakLostTitle: "تم إنهاء التتابع",
+    streakLostDesc: "تم رفض الدليل. تم إعادة تعيين تقدمك.",
+
+    // Profile
+    profileTitle: "الملف الشخصي",
+    navProfile: "الملف الشخصي",
+    editBio: "تعديل النبذة",
+    saveBio: "حفظ النبذة",
+    realName: "الاسم الحقيقي",
+    nickname: "الاسم المستعار",
+    editNames: "تعديل الأسماء",
+    saveNames: "حفظ الأسماء",
+    uploadPfp: "رفع صورة شخصية",
+    pfpPending: "الصورة قيد المراجعة",
+    pfpRejected: "تم رفض الصورة",
+    pfpApproved: "تمت الموافقة على الصورة",
+    bioPending: "النبذة قيد المراجعة",
+    bioRejected: "تم رفض النبذة",
+    bioApproved: "تمت الموافقة على النبذة",
+    nicknamePending: "الاسم المستعار قيد المراجعة",
+    nicknameRejected: "تم رفض الاسم المستعار",
+    nicknameApproved: "تمت الموافقة على الاسم المستعار",
+    moderationQueue: "قائمة المراجعة",
+    approve: "موافقة",
+    reject: "رفض",
+    noPendingPfps: "لا توجد صور بانتظار المراجعة.",
+    noPendingBios: "لا توجد نبذات بانتظار المراجعة.",
+    noPendingNicknames: "لا توجد أسماء مستعارة بانتظار المراجعة.",
+    createUser: "إنشاء حساب جديد",
+    deleteUser: "حذف الحساب",
+    userCreated: "تم إنشاء المستخدم بنجاح",
+    userDeleted: "تم حذف المستخدم بنجاح",
+    confirmDelete: "هل أنت متأكد أنك تريد حذف هذا المستخدم؟",
+    section: "القسم",
+    role: "الدور",
+    student: "طالب",
+    moderator: "مشرف",
+    admin: "مسؤول",
+    achievements: "الإنجازات",
+    seedling: "شتلة",
+    seedlingDesc: "كسبت 100 نقطة",
+    sprout: "برعم",
+    sproutDesc: "كسبت 500 نقطة",
+    tree: "شجرة",
+    treeDesc: "كسبت 1000 نقطة",
+    forest: "غابة",
+    forestDesc: "كسبت 5000 نقطة",
+    guardian: "حارس",
+    guardianDesc: "كسبت 10000 نقطة",
+    locked: "مغلق",
+    totalScore: "النقاط الكلية",
+    memberSince: "عضو منذ",
+    copyright: "© 2026 إيكو رانك. جميع الحقوق محفوظة.",
   }
 };
 
