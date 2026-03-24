@@ -1,4 +1,4 @@
-import { User } from '../types';
+import { User } from './types';
 
 const DB_KEY = 'ecorank_db_v1';
 const USERS_API = '/api/users';
@@ -20,17 +20,7 @@ export const getCurrentUser = async (): Promise<User | null> => {
       return await response.json();
     }
   } catch (error) {
-    console.warn('Failed to fetch current user from API, falling back to local storage:', error);
-  }
-  
-  // Fallback to local storage
-  try {
-    const currentUserStr = localStorage.getItem('ecorank_current_user');
-    if (currentUserStr) {
-      return JSON.parse(currentUserStr);
-    }
-  } catch (e) {
-    console.error('Failed to parse current user from local storage', e);
+    console.error('Failed to fetch current user:', error);
   }
   return null;
 };
@@ -48,27 +38,9 @@ export const getLeaderboard = async (): Promise<User[]> => {
       }
     }
   } catch (error) {
-    console.warn('Failed to fetch leaderboard from API, falling back to local storage:', error);
+    console.error('Failed to fetch leaderboard:', error);
   }
-  
-  // Fallback to local storage
-  try {
-    const serializedData = localStorage.getItem(DB_KEY);
-    const users = serializedData ? JSON.parse(serializedData) : [];
-    return users.map((u: any) => ({
-      id: u.id,
-      name: u.name,
-      totalPoints: u.totalPoints,
-      currentStreak: u.currentStreak,
-      actions: u.actions?.map((a: any) => ({ id: a.id, points: a.points })) || [],
-      profilePicture: u.profilePicture,
-      borderType: u.borderType,
-      section: u.section
-    }));
-  } catch (error) {
-    console.error("Failed to load local database:", error);
-    return [];
-  }
+  return [];
 };
 
 /**
@@ -108,30 +80,7 @@ export const saveUserUpdate = async (user: User): Promise<void> => {
       body: JSON.stringify(user)
     });
   } catch (error) {
-    console.warn('Failed to sync user update with server, saving locally:', error);
-  }
-  
-  // Always save locally as fallback
-  try {
-    const users = await getStoredUsers();
-    const index = users.findIndex(u => u.id === user.id);
-    if (index !== -1) {
-      users[index] = user;
-    } else {
-      users.push(user);
-    }
-    localStorage.setItem(DB_KEY, JSON.stringify(users));
-    
-    // Update current user if it's the one being updated
-    const currentUserStr = localStorage.getItem('ecorank_current_user');
-    if (currentUserStr) {
-      const currentUser = JSON.parse(currentUserStr);
-      if (currentUser.id === user.id) {
-        localStorage.setItem('ecorank_current_user', JSON.stringify(user));
-      }
-    }
-  } catch (e) {
-    console.error('Failed to save user update locally', e);
+    console.error('Failed to sync user update with server:', error);
   }
 };
 
@@ -147,7 +96,7 @@ export const saveStoredUsers = async (users: User[]): Promise<void> => {
       body: JSON.stringify(users)
     });
   } catch (error) {
-    console.warn('Failed to sync with server, saved locally:', error);
+    console.error('Failed to sync with server:', error);
   }
 };
 
@@ -156,6 +105,4 @@ export const saveStoredUsers = async (users: User[]): Promise<void> => {
  */
 export const clearDatabase = (): void => {
   localStorage.removeItem(DB_KEY);
-  localStorage.removeItem('ecorank_current_user');
-  localStorage.removeItem('token');
 };

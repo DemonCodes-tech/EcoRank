@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { User, Language } from '../types';
-import { translations } from '../services/translations';
+import { User, Language } from './types';
+import { translations } from './translations';
 import { Upload, Check, X, User as UserIcon, Shield } from 'lucide-react';
 import AnimatedProfilePicture from './AnimatedProfilePicture';
 
@@ -730,7 +730,7 @@ const Profile: React.FC<ProfileProps> = ({ currentUser, users, onUpdateUser, onU
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 {pendingPfpUsers.map(user => (
                   <div key={user.id} className="bg-black/20 p-4 rounded-2xl border border-white/5 flex flex-col items-center gap-4">
-                    <img src={user.pendingProfilePicture} alt={`Pending for ${user.name}`} className="w-24 h-24 rounded-full object-cover border-2 border-yellow-500/50" referrerPolicy="no-referrer" />
+                    <img src={user.pendingProfilePicture} alt={`Pending for ${user.name}`} className="w-24 h-24 rounded-full object-cover border-2 border-yellow-500/50" />
                     <div className="text-center">
                       <p className="text-white font-medium">{user.name}</p>
                       <p className="text-xs text-gray-400">Section {user.section}</p>

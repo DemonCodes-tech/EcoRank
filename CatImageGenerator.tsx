@@ -23,13 +23,7 @@ export const CatImageGenerator: React.FC<{
 
         const response = await ai.models.generateContent({
           model: 'gemini-2.5-flash-image',
-          contents: {
-            parts: [
-              {
-                text: prompt,
-              },
-            ],
-          },
+          contents: prompt,
           config: {
             imageConfig: {
               aspectRatio: "1:1",

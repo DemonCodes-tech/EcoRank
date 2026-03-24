@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Theme, themes, applyTheme } from '../services/themes';
+import { Theme, themes, applyTheme } from './themes';
 import { X, Palette, Check, Zap, Download, Monitor, Smartphone, Upload, Loader2 } from 'lucide-react';
-import { Language, User } from '../types';
-import { translations } from '../services/translations';
+import { Language, User } from './types';
+import { translations } from './translations';
 
 interface ThemeModalProps {
   isOpen: boolean;
@@ -138,86 +138,42 @@ const ThemeModal: React.FC<ThemeModalProps> = ({ isOpen, onClose, currentThemeId
       reader.onloadend = async () => {
         const base64Data = reader.result as string;
         const downscaledBase64 = await downscaleImage(base64Data);
-        const rawBase64 = downscaledBase64.replace(/^data:image\/\w+;base64,/, '');
 
-        const { GoogleGenAI, Type } = await import('@google/genai');
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-        // 1. Analyze the image
-        const analyzeResponse = await ai.models.generateContent({
-          model: 'gemini-3.1-pro-preview',
-          contents: {
-            parts: [
-              {
-                inlineData: {
-                  data: rawBase64,
-                  mimeType: 'image/jpeg'
-                }
-              },
-              {
-                text: 'Analyze this image. Is it too abstract to animate as a distinct floating sprite? If it is a distinct object, character, or item, it is not abstract. If it is a landscape, pattern, or just colors, it is abstract. Also provide a short description of the main subject to be used as a prompt for a pixel art generator, and suggest an animation style (float, bounce, spin, pulse). Return JSON.'
-              }
-            ]
+        const response = await fetch('/api/theme/process-image', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
           },
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                isAbstract: { type: Type.BOOLEAN },
-                subjectDescription: { type: Type.STRING },
-                animationStyle: { type: Type.STRING, description: 'One of: float, bounce, spin, pulse, none' }
-              },
-              required: ['isAbstract', 'subjectDescription', 'animationStyle']
-            }
-          }
+          body: JSON.stringify({ imageBase64: downscaledBase64 })
         });
 
-        let analysisText = analyzeResponse.text || '{}';
-        const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          analysisText = jsonMatch[0];
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error('Server error response:', errText);
+          try {
+            const errJson = JSON.parse(errText);
+            throw new Error(errJson.error || 'Failed to process image');
+          } catch (e) {
+            throw new Error(errText || 'Failed to process image');
+          }
         }
-        const analysis = JSON.parse(analysisText);
 
-        let finalImageUrl = '';
-        if (analysis.isAbstract) {
+        const data = await response.json();
+        
+        let finalImageUrl = data.pixelArtImage;
+        if (data.isAbstract) {
            finalImageUrl = await pixelateImage(downscaledBase64);
-        } else {
-          // 2. Generate pixel art sprite
-          const generateResponse = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
-            contents: {
-              parts: [
-                {
-                  text: `A 16-bit pixel art sprite of ${analysis.subjectDescription}. Clean pixel art style, isolated on a solid #00FF00 green background.`
-                }
-              ]
-            }
-          });
-
-          let generatedBase64 = null;
-          for (const part of generateResponse.candidates?.[0]?.content?.parts || []) {
-            if (part.inlineData) {
-              generatedBase64 = part.inlineData.data;
-              break;
-            }
-          }
-
-          if (!generatedBase64) {
-            throw new Error('Failed to generate pixel art image');
-          }
-          
-          finalImageUrl = `data:image/png;base64,${generatedBase64}`;
-          finalImageUrl = await removeGreenBackground(finalImageUrl);
+        } else if (finalImageUrl) {
+           finalImageUrl = await removeGreenBackground(finalImageUrl);
         }
 
         const customTheme: Theme = {
           id: `custom-${Date.now()}`,
           name: 'Custom Theme',
-          isAbstract: analysis.isAbstract,
+          isAbstract: data.isAbstract,
           customImageUrl: finalImageUrl,
-          customAnimation: analysis.animationStyle || 'none',
+          customAnimation: data.animationStyle || 'none',
           colors: {
             50: '#f8fafc',
             100: '#f1f5f9',

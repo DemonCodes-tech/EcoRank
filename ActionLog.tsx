@@ -1,11 +1,11 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { analyzeEcoAction } from '../services/geminiService';
+import { analyzeEcoAction } from './geminiService';
 import { Loader2, Camera, X, Video, AlertTriangle, CheckCircle, ScanLine, Upload, Zap, Wifi, Cpu, RefreshCw, Skull, ShieldAlert, Flame, Clock } from 'lucide-react';
-import { Language } from '../types';
-import { translations } from '../services/translations';
-import { hapticSuccess, hapticError, hapticClick } from '../services/haptics';
+import { Language } from './types';
+import { translations } from './translations';
+import { hapticSuccess, hapticError, hapticClick } from './haptics';
 
 interface ActionLogProps {
   onPointsAwarded: (points: number, description: string, comment: string, category: string, confidenceScore?: number) => void;
@@ -664,7 +664,7 @@ const ActionLog: React.FC<ActionLogProps> = ({ onPointsAwarded, onActionPendingR
                         {selectedFile?.type.startsWith('video') ? (
                             <video src={previewUrl!} controls className="w-full h-full object-contain bg-black" />
                         ) : (
-                            <img src={previewUrl!} alt="Preview" className="w-full h-full object-contain bg-black" referrerPolicy="no-referrer" />
+                            <img src={previewUrl!} alt="Preview" className="w-full h-full object-contain bg-black" />
                         )}
                         
                         {/* Scanning Line Animation & HUD Overlay */}
